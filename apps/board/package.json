@@ -1,0 +1,20 @@
+{
+  "name": "tome-board-page",
+  "private": true,
+  "description": "The drawing board page (Excalidraw); built into the tome-board skill (skills/tome-board/scripts/editor).",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node --test test/"
+  },
+  "dependencies": {
+    "@excalidraw/excalidraw": "0.18.1",
+    "lz-string": "1.5.0",
+    "react": "19.1.1",
+    "react-dom": "19.1.1"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.10"
+  }
+}

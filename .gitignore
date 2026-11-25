@@ -1,0 +1,4 @@
+node_modules/
+.DS_Store
+# The board page, built from apps/board.
+skills/tome-board/scripts/editor/
