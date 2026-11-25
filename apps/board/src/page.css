@@ -48,3 +48,35 @@ body.drawing, body.drawing #root { overflow: hidden; }
 /* What changed from outside (an agent's edit): green frames over the canvas. */
 .board-overlay { position: fixed; inset: 0; pointer-events: none; z-index: 5; }
 .board-changed { position: absolute; box-sizing: border-box; border: 2px solid #3fb57a; border-radius: 6px; box-shadow: 0 0 0 3px rgba(63, 181, 122, 0.25); }
+.board-status button.plain { color: inherit; border-color: var(--default-border-color, rgba(128, 128, 128, 0.5)); display: inline-flex; align-items: center; gap: 5px; }
+.board-status button.plain.on { color: #2f9d6c; border-color: currentColor; }
+.board-listening { width: 7px; height: 7px; border-radius: 50%; background: #3fb57a; }
+
+/* Comments: pins and the region in hand over the canvas, the picker, the panel. */
+.board-region { position: absolute; box-sizing: border-box; border: 2px dashed #e0892b; border-radius: 4px; background: rgba(224, 137, 43, 0.08); pointer-events: none; }
+.board-pin { position: absolute; transform: translate(-50%, -50%); min-width: 22px; height: 22px; padding: 0 5px; box-sizing: border-box; border: 2px solid #ffffff; border-radius: 11px; background: #e0892b; color: #ffffff; font: 600 12px/18px -apple-system, BlinkMacSystemFont, sans-serif; text-align: center; cursor: pointer; pointer-events: auto; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3); }
+.board-pin.on { background: #b7600f; }
+.board-pin.static { position: static; transform: none; display: inline-block; cursor: default; box-shadow: none; }
+.board-picker { position: fixed; inset: 0; z-index: 7; cursor: crosshair; touch-action: none; }
+.board-picker-hint { position: absolute; left: 50%; top: 72px; transform: translateX(-50%); padding: 5px 12px; border-radius: 8px; background: rgba(30, 30, 28, 0.85); color: #ffffff; font-size: 12px; white-space: nowrap; pointer-events: none; }
+
+.board-comments { --c-bg: #ffffff; --c-line: #e3e2de; --c-text: #1f1f1d; --c-dim: #77756f; --c-wash: #f4f3f0; position: fixed; z-index: 6; top: 64px; right: 12px; width: 300px; max-width: calc(100vw - 24px); max-height: calc(100% - 150px); overflow-y: auto; box-sizing: border-box; padding: 10px; border: 1px solid var(--c-line); border-radius: 10px; background: var(--c-bg); color: var(--c-text); font-size: 13px; box-shadow: 0 4px 18px rgba(0, 0, 0, 0.16); }
+.board-comments.dark { --c-bg: #232329; --c-line: #3a3a41; --c-text: #ecebe7; --c-dim: #9a9892; --c-wash: #2e2e35; }
+.board-comments button { font: inherit; color: inherit; border: 1px solid var(--c-line); border-radius: 6px; background: transparent; padding: 2px 9px; cursor: pointer; }
+.board-comments button.primary { background: #2f7d5b; border-color: #2f7d5b; color: #ffffff; font-weight: 600; }
+.board-comments button:disabled { opacity: 0.5; cursor: default; }
+.board-comments-head { display: flex; align-items: center; justify-content: space-between; }
+.board-comments-agent { margin: 6px 0 8px; color: var(--c-dim); font-size: 12px; }
+.board-comments-agent.on { color: #2f9d6c; }
+.board-comments-empty { color: var(--c-dim); padding: 14px 0; text-align: center; }
+.board-thread { border: 1px solid var(--c-line); border-radius: 8px; padding: 8px; margin-top: 8px; cursor: pointer; }
+.board-thread.on { border-color: #e0892b; cursor: default; }
+.board-thread-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; font-weight: 600; }
+.board-thread-head span:not(.board-pin) { color: var(--c-dim); font-weight: 400; font-size: 12px; }
+.board-thread-head button { margin-left: auto; font-size: 12px; }
+.board-message { margin-top: 6px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.board-message i { display: block; font-style: normal; font-size: 11px; color: var(--c-dim); }
+.board-message.agent { background: var(--c-wash); border-radius: 6px; padding: 5px 7px; }
+.board-composer textarea { display: block; width: 100%; box-sizing: border-box; margin-top: 6px; padding: 6px 8px; border: 1px solid var(--c-line); border-radius: 6px; background: var(--c-bg); color: inherit; font: inherit; resize: vertical; }
+.board-composer textarea:focus { outline: 2px solid #2f7d5b; outline-offset: -1px; }
+.board-composer-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 6px; }

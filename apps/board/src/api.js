@@ -32,6 +32,10 @@ export const api = {
   save: (path, text, base, png) => call("/api/board?" + q({ path }), { method: "PUT", headers: WRITE, body: JSON.stringify({ text, base, png }) }),
   /** Answers when the drawing is not at `rev` any more ({rev, text}; {rev: null}: gone), or with the same rev after a while. */
   wait: (path, rev, signal) => call("/api/wait?" + q({ path, rev }), { signal }),
+  /** A drawing's comments: {threads, listening (an agent waits for one)}. */
+  comments: (path) => call("/api/comments?" + q({ path })),
+  /** What the person does to them: {op: "new" | "say" | "send" | "resolve", …} → {thread}. */
+  comment: (path, body) => call("/api/comments?" + q({ path }), { method: "POST", headers: WRITE, body: JSON.stringify(body) }),
   pngUrl: (path, mtime) => "/api/png?" + q({ path, t: mtime }),
 };
 

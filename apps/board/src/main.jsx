@@ -21,9 +21,11 @@ import {
 } from "@excalidraw/excalidraw";
 import "@excalidraw/excalidraw/index.css";
 import { api, boardUrl } from "./api.js";
+import { Comments, selectionDraft, useComments } from "./comments.jsx";
 import { emptyText, parseFile, sceneSignature, sceneToSave, serializeFile } from "./format.js";
 import { excalidrawLang, t } from "./i18n.js";
 import { Library } from "./library.jsx";
+import { overlayBus, useRedraw } from "./overlay.js";
 import { changedIds } from "./regions.js";
 
 const SAVE_DELAY = 800;
@@ -82,21 +84,9 @@ function savedTheme() {
   return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 
-/** Tells the layer over the canvas to draw again (the view moved, the drawing changed). */
-const overlayBus = { listeners: new Set(), emit() { this.listeners.forEach((f) => f()); } };
-
 /** Over the canvas: green frames around the elements changed from outside. */
 function Overlay({ apiRef, changed }) {
-  const [, redraw] = useState(0);
-  useEffect(() => {
-    let frame = 0;
-    const f = () => {
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => redraw((n) => n + 1));
-    };
-    overlayBus.listeners.add(f);
-    return () => overlayBus.listeners.delete(f);
-  }, []);
+  useRedraw();
   const a = apiRef.current;
   if (!a || changed.length === 0) return null;
   const appState = a.getAppState();
@@ -119,6 +109,9 @@ function Board({ name, file }) {
   const [changed, setChanged] = useState([]);
   const [status, setStatus] = useState({ kind: "saved" });
   const [gone, setGone] = useState(false);
+  const comments = useComments(file.path);
+  const [commentUi, setCommentUi] = useState({ open: false, picking: false, draft: null, active: null });
+  const [theme, setTheme] = useState(savedTheme);
   const [opened, setOpened] = useState(() => ({ parsed: parseFile(file.text, file.path), key: 1 }));
   const apiRef = useRef(null);
   apiRef.current = api_;
@@ -238,7 +231,14 @@ function Board({ name, file }) {
       document.removeEventListener("visibilitychange", leave);
     };
   }, [name, save]);
-  useEffect(() => overlayBus.emit(), [changed]);
+  useEffect(() => overlayBus.emit(), [changed, comments.threads, commentUi]);
+
+  /** A comment on what is selected; nothing selected: on the area dragged next. */
+  const startComment = () => {
+    const draft = apiRef.current ? selectionDraft(apiRef.current) : null;
+    setCommentUi((u) => (draft ? { ...u, open: true, picking: false, draft, active: null } : { ...u, picking: !u.picking, draft: null }));
+  };
+  const openComments = comments.threads.filter((x) => !x.resolved).length;
 
   const copy = (text) => navigator.clipboard?.writeText(text).then(() => setStatus((s) => ({ ...s, note: t("Copied") })), () => {});
   useEffect(() => {
@@ -273,6 +273,7 @@ function Board({ name, file }) {
         onScrollChange={() => overlayBus.emit()}
         onChange={(elements, appState, files) => {
           overlayBus.emit();
+          setTheme(appState.theme);
           try {
             localStorage.setItem(THEME_KEY, appState.theme);
           } catch {
@@ -293,6 +294,10 @@ function Board({ name, file }) {
             {changed.length > 0 && (
               <button onClick={() => setChanged([])} title={t("Clear")}>{t("{n} changed from outside", { n: changed.length })} ×</button>
             )}
+            <button className={"plain" + (commentUi.picking ? " on" : "")} onClick={startComment}>{t("Comment")}</button>
+            <button className={"plain" + (commentUi.open ? " on" : "")} onClick={() => setCommentUi((u) => ({ ...u, open: !u.open, draft: null, active: null }))} title={t("Comments")}>
+              {openComments}{comments.listening && <em className="board-listening" />}
+            </button>
           </div>
         )}
       >
@@ -316,6 +321,15 @@ function Board({ name, file }) {
         </WelcomeScreen>
       </Excalidraw>
       <Overlay apiRef={apiRef} changed={changed} />
+      <Comments
+        apiRef={apiRef}
+        path={file.path}
+        theme={theme}
+        comments={comments}
+        ui={commentUi}
+        setUi={setCommentUi}
+        picture={(elements) => pngBase64(elements, apiRef.current.getAppState(), apiRef.current.getFiles())}
+      />
     </>
   );
 }

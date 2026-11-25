@@ -5,7 +5,10 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { emptyText } from "../src/format.js";
-import { Boards, EMPTY_TEXT, boardFileStem, handle, isBoard, pngPath } from "../../../skills/tome-board/scripts/board.mjs";
+import { Boards, Comments, EMPTY_TEXT, boardFileStem, handle, isBoard, pngPath } from "../../../skills/tome-board/scripts/board.mjs";
+
+// Comments and process notes go to a folder of the test's own.
+process.env.TOME_BOARD_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "tome-board-home-"));
 
 const PNG = Buffer.from("\x89PNG\r\n\x1a\nrest", "latin1");
 
@@ -151,4 +154,61 @@ test("serves the page", async () => {
   assert.equal((await handle(ctx, req("GET", "/assets/a.js"))).body.toString(), "js");
   for (const missing of ["/.secret", "/assets/../.secret", "/nothing.js", "/assets"]) assert.equal((await handle(ctx, req("GET", missing))).status, 404, missing);
   assert.equal((await handle({ ...ctx, web: null }, req("GET", "/"))).status, 404);
+});
+
+test("comments: saved, sent, taken by a waiting agent, answered", async () => {
+  const { ctx } = vault();
+  await handle(ctx, req("POST", "/api/boards", { title: "a", text: "v1" }));
+  await handle(ctx, req("POST", "/api/boards", { title: "b", text: "v1" }));
+  const a = "Excalidraw/a.excalidraw.md";
+  const b = "Excalidraw/b.excalidraw.md";
+  const at = (rel) => "/api/comments?path=" + encodeURIComponent(rel);
+  const post = async (rel, body) => handle(ctx, req("POST", at(rel), body));
+  const get = async (rel) => json(await handle(ctx, req("GET", at(rel))));
+  const take = async (rel, ms) => json(await handle(ctx, req("POST", `/api/comments/take?ms=${ms}` + (rel ? "&path=" + encodeURIComponent(rel) : "")))).thread;
+  assert.deepEqual(await get(a), { threads: [], listening: false });
+
+  // Saved while no agent listens: an agent that waits does not get it.
+  const rect = { x: 1, y: 2, width: 30, height: 40 };
+  const made = json(await post(a, { op: "new", rect, elements: [{ id: "e1", type: "text", text: "Login", more: 1 }, { nope: 1 }], text: " make it blue ", png: PNG.toString("base64") }));
+  const id = made.thread.id;
+  assert.deepEqual([made.thread.n, made.thread.sent, made.thread.region, made.thread.messages[0].text], [1, null, true, "make it blue"]);
+  assert.deepEqual(made.thread.elements, [{ id: "e1", type: "text", text: "Login" }]);
+  assert.equal(await take(null, 1), null);
+  assert.equal((await get(a)).listening, true); // it asks again in a moment
+  assert.equal((await get(b)).listening, true);
+
+  // Sent: the waiting agent gets it, once, with where to look.
+  assert.equal((await post(a, { op: "send", id })).status, 200);
+  assert.equal(await take(b, 1), null);
+  const got = await take(a, 1000);
+  assert.deepEqual([got.id, got.n, got.board, got.sent, got.rect], [id, 1, "a", true, rect]);
+  assert.ok(got.file.endsWith("/Excalidraw/a.excalidraw.md") && got.png.endsWith("/Excalidraw/a.png"));
+  assert.deepEqual(fs.readFileSync(got.region), PNG);
+  assert.equal(await take(null, 1), null);
+
+  // The agent answers; the person's next words go out again.
+  const comments = new Comments(ctx.boards.root);
+  comments.say(id, "agent", "done");
+  assert.deepEqual((await get(a)).threads[0].messages.map((m) => [m.from, m.text]), [["user", "make it blue"], ["agent", "done"]]);
+  await post(a, { op: "say", id, text: "darker", send: true });
+  assert.equal((await take(null, 1000)).messages.length, 3);
+
+  // A wait that is already asking gets a comment sent meanwhile.
+  const waiting = take(null, 5000);
+  setTimeout(() => post(b, { op: "new", rect, elements: [], text: "why?", send: true }), 200);
+  const late = await waiting;
+  assert.deepEqual([late.board, late.n, late.region, late.messages[0].text], ["b", 1, null, "why?"]);
+
+  // Resolved and reopened; the other drawing's thread is not this one's.
+  comments.say(id, "agent", "ok", { resolve: true });
+  assert.equal((await get(a)).threads[0].resolved, true);
+  assert.equal((await post(a, { op: "resolve", id, resolved: false })).status, 200);
+  assert.equal((await get(a)).threads[0].resolved, false);
+  assert.equal((await post(b, { op: "resolve", id })).status, 404);
+  for (const bad of [{ op: "new", rect, text: "" }, { op: "new", rect: { x: 1 }, text: "x" }, { op: "new", rect, text: "x", png: Buffer.from("<html>").toString("base64") }, { op: "nothing", id }]) {
+    assert.equal((await post(a, bad)).status, 400, JSON.stringify(bad));
+  }
+  assert.equal((await post("Task/card.md", { op: "new", rect, text: "x" })).status, 403);
+  assert.equal((await handle(ctx, req("POST", at(a), { op: "send", id }, { "x-tome-board": null }))).status, 403);
 });

@@ -29,6 +29,11 @@ const WRITE_HEADER = "x-tome-board";
 const WAIT_MS = 25000;
 const WAIT_STEP_MS = 200;
 const PNG_MAGIC = Buffer.from("\x89PNG\r\n\x1a\n", "latin1");
+const MAX_COMMENT = 8000;
+const MAX_COMMENT_ELEMENTS = 300;
+const TAKE_STEP_MS = 400;
+/** How long the page still shows an agent as listening after its wait ended (it asks again right away). */
+const LISTEN_GRACE_MS = 3000;
 const here = path.dirname(fs.realpathSync(fileURLToPath(import.meta.url)));
 
 /** The text of a new, empty drawing (what apps/board/src/format.js `emptyText()` gives; a test holds them equal). */
@@ -232,6 +237,186 @@ export class Boards {
   }
 }
 
+// ---- comments ----
+//
+// A comment is the person's words about a region of a drawing, made in the
+// page. They are not the vault's: `<home>/comments/<vault id>/<drawing id>/`
+// holds `comments.json` ({path, next, threads}) and a picture of each
+// region (`<thread id>.png`). A thread: {id, n, at, rect, elements,
+// region, messages: [{from: "user" | "agent", text, at}], sent, taken,
+// resolved}. `sent`: the person handed it to an agent; `taken`: a waiting
+// agent got it.
+
+const shortHash = (s) => crypto.createHash("sha256").update(s).digest("hex").slice(0, 16);
+const now = () => new Date().toISOString();
+
+function commentText(v) {
+  const text = typeof v === "string" ? v.trim() : "";
+  if (!text) throw new Fail("Invalid", "the comment has no text");
+  if (text.length > MAX_COMMENT) throw new Fail("Invalid", "the comment is too long");
+  return text;
+}
+
+/** The comments on one vault's drawings. */
+export class Comments {
+  constructor(vault) {
+    this.root = path.join(homeDir(), "comments", shortHash(vault));
+  }
+
+  dir(rel) {
+    return path.join(this.root, shortHash(rel));
+  }
+
+  /** A drawing's comments; none yet: an empty list. */
+  load(rel) {
+    try {
+      const v = JSON.parse(fs.readFileSync(path.join(this.dir(rel), "comments.json"), "utf8"));
+      if (v && Array.isArray(v.threads)) return { path: rel, next: Number(v.next) || v.threads.length + 1, threads: v.threads };
+    } catch {
+      // none
+    }
+    return { path: rel, next: 1, threads: [] };
+  }
+
+  store(data) {
+    const dir = this.dir(data.path);
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    atomicWrite(path.join(dir, "comments.json"), Buffer.from(JSON.stringify(data, null, 2)));
+  }
+
+  /** Every drawing's comments. */
+  all() {
+    let names = [];
+    try {
+      names = fs.readdirSync(this.root);
+    } catch {
+      return [];
+    }
+    const out = [];
+    for (const name of names.sort()) {
+      try {
+        const v = JSON.parse(fs.readFileSync(path.join(this.root, name, "comments.json"), "utf8"));
+        if (v && typeof v.path === "string" && Array.isArray(v.threads) && name === shortHash(v.path)) out.push(v);
+      } catch {
+        // not a drawing's comments
+      }
+    }
+    return out;
+  }
+
+  /** The thread of that id, in its drawing's comments: {data, thread}. */
+  find(id) {
+    for (const data of this.all()) {
+      const thread = data.threads.find((t) => t.id === id);
+      if (thread) return { data, thread };
+    }
+    throw new Fail("NotFound", `no comment ${id}`);
+  }
+
+  /** The picture of a thread's region; null: none was made. */
+  regionPng(rel, thread) {
+    return thread.region ? path.join(this.dir(rel), `${thread.id}.png`) : null;
+  }
+
+  /** A new thread on `rel`. `png`: a picture of the region (a Buffer) or null. */
+  add(rel, { rect, elements, text, png, send }) {
+    const body = commentText(text);
+    const r = rect && typeof rect === "object" ? [rect.x, rect.y, rect.width, rect.height] : [];
+    if (r.length !== 4 || !r.every((n) => typeof n === "number" && Number.isFinite(n))) throw new Fail("Invalid", "rect");
+    if (png && (png.length > MAX_PNG || !png.subarray(0, 8).equals(PNG_MAGIC))) throw new Fail("Invalid", "not a png, or too large");
+    const els = (Array.isArray(elements) ? elements : [])
+      .filter((e) => e && typeof e.id === "string" && typeof e.type === "string")
+      .slice(0, MAX_COMMENT_ELEMENTS)
+      .map((e) => ({ id: e.id.slice(0, 80), type: e.type.slice(0, 40), ...(typeof e.text === "string" && e.text ? { text: e.text.slice(0, 400) } : {}) }));
+    const data = this.load(rel);
+    const at = now();
+    const thread = {
+      id: crypto.randomBytes(5).toString("hex"),
+      n: data.next,
+      at,
+      rect: { x: r[0], y: r[1], width: r[2], height: r[3] },
+      elements: els,
+      region: Boolean(png),
+      messages: [{ from: "user", text: body, at }],
+      sent: send ? at : null,
+      taken: null,
+      resolved: false,
+    };
+    data.next += 1;
+    data.threads.push(thread);
+    if (png) {
+      fs.mkdirSync(this.dir(rel), { recursive: true, mode: 0o700 });
+      atomicWrite(path.join(this.dir(rel), `${thread.id}.png`), png);
+    }
+    this.store(data);
+    return thread;
+  }
+
+  /** One more message in a thread. The person's opens it again and may send it; an agent's may resolve it. */
+  say(id, from, text, { send = false, resolve = false } = {}) {
+    const { data, thread } = this.find(id);
+    const at = now();
+    thread.messages.push({ from, text: commentText(text), at });
+    if (from === "user") {
+      thread.sent = send ? at : null;
+      thread.taken = null;
+      thread.resolved = false;
+    } else if (resolve) thread.resolved = true;
+    this.store(data);
+    return { data, thread };
+  }
+
+  /** Hands a thread to the agent that waits (or will). */
+  send(id) {
+    const { data, thread } = this.find(id);
+    thread.sent = now();
+    thread.taken = null;
+    thread.resolved = false;
+    this.store(data);
+    return { data, thread };
+  }
+
+  resolve(id, resolved) {
+    const { data, thread } = this.find(id);
+    thread.resolved = Boolean(resolved);
+    this.store(data);
+    return { data, thread };
+  }
+
+  /** The oldest thread sent and not yet taken (of `rel`; null: of any drawing), marked taken; null: none. */
+  take(rel) {
+    let first = null;
+    for (const data of rel === null ? this.all() : [this.load(rel)]) {
+      for (const thread of data.threads) {
+        if (thread.sent && !thread.taken && !thread.resolved && (!first || thread.sent < first.thread.sent)) first = { data, thread };
+      }
+    }
+    if (!first) return null;
+    first.thread.taken = now();
+    this.store(first.data);
+    return first;
+  }
+}
+
+/** A thread as an agent reads it: where it is, what it holds, what was said. */
+function describeThread(boards, comments, rel, thread) {
+  const file = path.join(boards.root, rel);
+  return {
+    id: thread.id,
+    n: thread.n,
+    board: stem(rel.slice(boards.dirName().length + 1)),
+    file,
+    png: path.join(boards.root, pngPath(rel)),
+    region: comments.regionPng(rel, thread),
+    rect: thread.rect,
+    elements: thread.elements,
+    messages: thread.messages,
+    sent: Boolean(thread.sent),
+    resolved: thread.resolved,
+    ...(isFile(file) ? {} : { note: "this drawing's file is gone" }),
+  };
+}
+
 // ---- the server ----
 
 const TYPES = {
@@ -278,6 +463,10 @@ export async function handle(ctx, req) {
   if (req.method !== "GET" && req.method !== "HEAD" && h(WRITE_HEADER) === undefined) return text(403, "not from the board page");
 
   const { boards } = ctx;
+  const comments = (ctx.comments ??= new Comments(boards.root));
+  /** The agents waiting for a comment now: a key → {rel (null: any drawing), until}. */
+  const waiters = (ctx.waiters ??= new Map());
+  const listening = (rel) => [...waiters.values()].some((w) => w.until > Date.now() && (w.rel === null || w.rel === rel));
   const abs = (rel) => path.join(boards.root, rel);
   const body = () => {
     try {
@@ -352,6 +541,58 @@ export async function handle(ctx, req) {
         await new Promise((r) => setTimeout(r, WAIT_STEP_MS));
       }
     }
+    if (route === "GET /api/comments") {
+      // A drawing's threads, and whether an agent is waiting for one.
+      const rel = req.query.get("path");
+      if (rel === null) return bad("path");
+      boards.resolve(rel, false);
+      return json(200, { threads: comments.load(rel).threads, listening: listening(rel) });
+    }
+    if (route === "POST /api/comments") {
+      // What the page does: {op: "new", rect, elements, text, png?, send?}, {op: "say", id, text, send?},
+      // {op: "send", id}, {op: "resolve", id, resolved}.
+      const rel = req.query.get("path");
+      if (rel === null) return bad("path");
+      boards.resolve(rel, false);
+      const b = body();
+      if (!b) return bad("the body is not a JSON object");
+      if (b.op === "new") {
+        let png = null;
+        if (typeof b.png === "string" && b.png !== "") {
+          if (!/^[A-Za-z0-9+/]*={0,2}$/.test(b.png)) return bad("png is not base64");
+          png = Buffer.from(b.png, "base64");
+        }
+        return json(200, { thread: comments.add(rel, { rect: b.rect, elements: b.elements, text: b.text, png, send: b.send === true }) });
+      }
+      if (typeof b.id !== "string") return bad("id");
+      if (comments.find(b.id).data.path !== rel) throw new Fail("NotFound", `no comment ${b.id}`);
+      if (b.op === "say") return json(200, { thread: comments.say(b.id, "user", b.text, { send: b.send === true }).thread });
+      if (b.op === "send") return json(200, { thread: comments.send(b.id).thread });
+      if (b.op === "resolve") return json(200, { thread: comments.resolve(b.id, b.resolved !== false).thread });
+      return bad("op");
+    }
+    if (route === "POST /api/comments/take") {
+      // An agent's wait: answers with the next thread the person sent ({thread}), or {thread: null} after a while.
+      // While it waits the page offers "Send to Agent".
+      const rel = req.query.get("path");
+      if (rel !== null) boards.resolve(rel, false);
+      const ms = Number(req.query.get("ms"));
+      const until = Date.now() + (Number.isFinite(ms) && req.query.get("ms") !== null ? Math.min(WAIT_MS, Math.max(0, ms)) : WAIT_MS);
+      const key = crypto.randomUUID();
+      waiters.set(key, { rel, until: until + LISTEN_GRACE_MS });
+      try {
+        for (;;) {
+          const got = comments.take(rel);
+          if (got) return json(200, { thread: describeThread(boards, comments, got.data.path, got.thread) });
+          if (Date.now() >= until || req.gone?.()) return json(200, { thread: null });
+          await new Promise((r) => setTimeout(r, TAKE_STEP_MS));
+        }
+      } finally {
+        if (req.gone?.()) waiters.delete(key);
+        else waiters.get(key).until = Date.now() + LISTEN_GRACE_MS;
+        for (const [k, w] of waiters) if (w.until <= Date.now()) waiters.delete(k);
+      }
+    }
     if (req.path.startsWith("/api/")) return text(404, "no such call");
     if (req.method !== "GET" && req.method !== "HEAD") return text(405, "GET only");
     const f = ctx.web ? pageFile(ctx.web, req.path) : null;
@@ -398,7 +639,7 @@ function listen(first) {
 function homeDir() {
   return process.env.TOME_BOARD_HOME || path.join(os.homedir(), ".tome-board");
 }
-const stateFile = (vault) => path.join(homeDir(), "servers", crypto.createHash("sha256").update(vault).digest("hex").slice(0, 16) + ".json");
+const stateFile = (vault) => path.join(homeDir(), "servers", shortHash(vault) + ".json");
 const logFile = (vault) => stateFile(vault).replace(/\.json$/, ".log");
 function readState(vault) {
   try {
@@ -561,6 +802,11 @@ board.mjs list          the drawings: [{name, path, file, png, mtime}]
 board.mjs stop          end it
 board.mjs serve         run it here, in the foreground
 
+board.mjs comments [NAME]             the open comments (of that drawing; none: of every drawing); --all: the resolved ones too
+board.mjs comments [NAME] --wait      wait until the person sends a comment to the agent; prints that thread and ends
+board.mjs comment-reply ID TEXT       reply to a comment (TEXT "-": from stdin); --resolve also closes it
+board.mjs comment-resolve ID          close a comment; --reopen opens it again
+
 --vault DIR   the vault (default: $TOME_BOARD_VAULT, the one Agent Tome is set to, or the Obsidian vault above this folder)
 --port N      the first port to try (default ${DEFAULT_PORT})
 `;
@@ -573,9 +819,12 @@ async function main(argv) {
   let vaultArg = null;
   let port = DEFAULT_PORT;
   const words = [];
+  const flags = new Set();
   for (let i = 0; i < rest.length; i++) {
     const a = rest[i];
-    if (a === "--vault" || a === "--port") {
+    if (["--all", "--wait", "--resolve", "--reopen"].includes(a)) flags.add(a.slice(2));
+    else if (a === "-") words.push(a);
+    else if (a === "--vault" || a === "--port") {
       const v = rest[++i];
       if (v === undefined) fail(`${a} needs a value`);
       if (a === "--vault") vaultArg = v;
@@ -584,7 +833,7 @@ async function main(argv) {
     } else if (a.startsWith("--")) fail(`unknown option ${a}`);
     else words.push(a);
   }
-  if (words.length > 1) fail("one name at most (quote a name that has spaces)");
+  if (words.length > (command === "comment-reply" ? 2 : 1)) fail("one name at most (quote a name that has spaces)");
   const vault = findVault(vaultArg);
   const print = (v) => console.log(JSON.stringify(v, null, 2));
   /** What a drawing is, for whoever attaches it to a card. */
@@ -625,6 +874,54 @@ async function main(argv) {
       return print({ ...out, url: boardUrl(state.url, words[0]), exists: false, note: "No drawing of that name: the page asks whether to make it. `new` makes it now." });
     }
     return print(out);
+  }
+  if (command === "comments") {
+    const boards = new Boards(vault);
+    const comments = new Comments(vault);
+    let rel = null;
+    if (words.length === 1) {
+      rel = boards.find(words[0]);
+      if (rel === null) fail(`no drawing named ${words[0]}`);
+    }
+    if (!flags.has("wait")) {
+      const out = [];
+      for (const data of rel === null ? comments.all() : [comments.load(rel)]) {
+        for (const t of data.threads) if (flags.has("all") || !t.resolved) out.push(describeThread(boards, comments, data.path, t));
+      }
+      return print(out);
+    }
+    // Until a comment is sent: the page shows an agent as listening while this asks.
+    const me = path.join(here, "board.mjs");
+    const again = `node ${JSON.stringify(me)} comments${words.length ? " " + JSON.stringify(words[0]) : ""} --wait --vault ${JSON.stringify(vault)}`;
+    for (;;) {
+      try {
+        const state = await ensure(vault, port);
+        const query = new URLSearchParams(rel === null ? {} : { path: rel });
+        const res = await fetch(`${state.url}api/comments/take?${query}`, { method: "POST", headers: { [WRITE_HEADER]: "1" }, signal: AbortSignal.timeout(WAIT_MS + 15000) });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const { thread } = await res.json();
+        if (thread) return print({ ...thread, next: again });
+      } catch {
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+    }
+  }
+  if (command === "comment-reply" || command === "comment-resolve") {
+    const boards = new Boards(vault);
+    const comments = new Comments(vault);
+    if (words.length === 0) fail(`${command} needs a comment's id`);
+    try {
+      let done;
+      if (command === "comment-resolve") done = comments.resolve(words[0], !flags.has("reopen"));
+      else {
+        if (words.length < 2) fail("comment-reply needs the text (or - for stdin)");
+        const said = words[1] === "-" ? fs.readFileSync(0, "utf8") : words[1];
+        done = comments.say(words[0], "agent", said, { resolve: flags.has("resolve") });
+      }
+      return print(describeThread(boards, comments, done.data.path, done.thread));
+    } catch (e) {
+      fail(e.message);
+    }
   }
   fail(`unknown command ${command}\n\n${USAGE}`);
 }
