@@ -1,0 +1,74 @@
+# tome-skill
+
+[English](README.md) · 简体中文 · [日本語](README.ja.md)
+
+Agent Tome 的 skill。每个 skill 是 `skills/<名字>/`：`SKILL.md` 告诉 agent 怎么用，`scripts/` 是它跑的命令。skill 不在 Agent Tome 的应用里，也不在 `tomed` 里，不装 Agent Tome 也能单独用。
+
+| skill | 做什么 |
+| --- | --- |
+| `tome-board` | 画板（Excalidraw）：在浏览器里和 agent 一起画，文件存在 Obsidian 卡片库里 |
+| `tome-md` | Markdown：在浏览器里看渲染好的文档，选中一段评论或提问，agent 在评论下面回答、改文件 |
+
+## 安装
+
+把 skill 的文件夹链接到 agent 放 skill 的地方（Claude Code 是 `~/.claude/skills/`）：
+
+```sh
+ln -s "$PWD/skills/tome-board" ~/.claude/skills/tome-board
+ln -s "$PWD/skills/tome-md" ~/.claude/skills/tome-md
+```
+
+`tome-md` 不用构建，链接上就能用。`tome-board` 的页面要先构建一次（Node 20+）：
+
+```sh
+cd apps/board && npm ci --ignore-scripts && node build.mjs
+```
+
+## tome-board：画板
+
+和 claude slides・claude design 同一种做法：`scripts/board.mjs` 是命令和本机服务（Node 20+，没有依赖），`scripts/editor/` 是页面（从 `apps/board` 构建，不进 git）。agent 跑 `open` 拿到地址交给人。
+
+```sh
+node skills/tome-board/scripts/board.mjs open          # 没在跑就启动，打印 {"url": "http://127.0.0.1:4740/", …}：画板库
+node skills/tome-board/scripts/board.mjs open 流程图    # 这张画板的地址、文件、png；没有这张就给出页面上问要不要创建的地址
+node skills/tome-board/scripts/board.mjs new 流程图     # 新建一张空的，并给出挂到卡片上的两行
+node skills/tome-board/scripts/board.mjs list
+node skills/tome-board/scripts/board.mjs stop
+node skills/tome-board/scripts/board.mjs comments --wait        # 等人在页面上把评论发给 agent，打印那条评论后结束
+node skills/tome-board/scripts/board.mjs comment-reply <id> "…"  # 回复（--resolve 同时关掉）；comment-resolve <id> 只关掉
+```
+
+- 卡片库：`--vault`，没给就按 `$TOME_BOARD_VAULT`、Agent Tome 设的卡片库（home 的 `config.json`）、当前文件夹往上找到的 Obsidian 库的顺序找。
+- 文件：卡片库的 `Excalidraw/`（Obsidian 的 Excalidraw 插件设了别的文件夹就跟它走）里的 `<名字>.excalidraw.md`，和插件同一种格式，两边都能开。停笔 0.8 秒自动保存，同时在旁边写一张整张图的 `<名字>.png`（给 agent 看的）。
+- agent 直接改 `.excalidraw.md` 里 ```json 的 elements，开着的页面马上换新，改过的元素描绿框（右上角「外部改了 N 处」点掉），⌘Z 能撤回；页面随后按自己的格式重写一遍并更新 png。
+- 区域评论：页面右上角「评论」。先选中图形再点，或者点了之后拖一块区域・点一个图形，写要怎么改或提问。有 agent 在跑 `comments --wait` 时按钮是「发给 Agent」，那条评论（文字、区域、里面的图形、图形的截图）交给它；没有就只保存，agent 用 `comments` 读。agent 的回复显示在评论下面。评论不放在卡片库里，在 `~/.tome-board/comments/`。
+- 画板库（`/`）：最近改过的在前，按名字搜，「新画板」。菜单（☰）里有「全部画板」「复制图片路径」「复制文件路径」。
+- 一个卡片库一个进程，管这个库的全部画板。只听 127.0.0.1（默认 4740，被占就往上找）。只接受发给这台机器（`127.0.0.1`・`localhost`，端口不限：容器转发出来的端口可能不一样）的请求，别的网站的页面读不到也写不了；只碰画板文件夹里的 `.excalidraw.md`・`.excalidraw`・`.png`，写入是原子的、带 rev。
+- 在跑的进程记在 `~/.tome-board/servers/<id>.json`（`$TOME_BOARD_HOME` 可以换地方）：`pid`・`url`・`port`・`root`・`kind: "board"`・`startedAt`，和 claude slides・design 写在各自文件夹里的 `.artifact-server.json` 同样的字段。Agent Tome 的「本机页面」靠它列出画板。脚本或页面更新后下一次 `open` 会换成新的进程。
+- 测试：`cd apps/board && npm test`（文件格式・文字的翻译・服务的规则）。
+- 第三方许可（Excalidraw、字体、依赖）在 `scripts/editor/THIRD_PARTY_LICENSES.txt`，画板库页面最下面有链接。不带 Mermaid 导入和协作。
+
+## tome-md：Markdown
+
+`scripts/md.mjs` 是命令和本机服务（Node 20+，没有依赖），`scripts/page/` 是页面（原生 JS，不用构建；Markdown 的解析用随附的 marked，许可在 `scripts/page/vendor/marked.LICENSE.md`）。
+
+```sh
+node skills/tome-md/scripts/md.mjs open 笔记.md        # 没在跑就启动，打印 {"url": "http://127.0.0.1:4750/d/<id>", …}
+node skills/tome-md/scripts/md.mjs open               # 打开过的文件的列表页
+node skills/tome-md/scripts/md.mjs list
+node skills/tome-md/scripts/md.mjs close 笔记.md       # 从列表里拿掉（文件不动）
+node skills/tome-md/scripts/md.mjs stop
+node skills/tome-md/scripts/md.mjs comments --wait        # 等人在页面上把评论发给 agent，打印那条评论后结束
+node skills/tome-md/scripts/md.mjs comment-reply <id> "…"  # 回复（--resolve 同时关掉）；comment-resolve <id> 只关掉
+```
+
+- 页面只读文件，不改。人用自己的编辑器改，agent 直接改文件；文件一变页面马上换新，新的和改过的段落左边描绿（右上角「改了 N 处」点掉）。
+- 评论：选中一段文字点「评论」，或者在右边面板最上面的框里对整篇文档说话。「添加注释」只存下来不发；有 agent 在跑 `comments --wait` 时旁边多一个「发给 Agent」，把这一条和这个文件里之前加的注释一起交给它（文字、选中的原文、所在的行、所在的标题）。没有 agent 在等时注释只保存，agent 用 `comments` 读。agent 的回复显示在评论下面。
+- 只显示用 `open` 打开过的文件（`.md`・`.markdown`），页面上没有打开别的文件的入口。图片只显示文件旁边的（同一个卡片库或仓库里、不在隐藏文件夹里），网上的图片不加载；文件里写的 HTML 当文字显示，不执行。
+- 一台机器一个进程。只听 127.0.0.1（默认 4750，被占就往上找），和画板一样只接受发给这台机器的请求。
+- 自己的记录都在 `~/.tome-md/`（`$TOME_MD_HOME` 可以换地方）：打开过的文件、在跑的进程（`servers/main.json`，`kind: "md"`）、评论。
+- 测试：`cd apps/md && npm test`。
+
+## 许可
+
+MIT，见 [LICENSE](LICENSE)。

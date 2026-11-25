@@ -1,69 +1,74 @@
 # tome-skill
 
-Agent Tome 的 skill。每个 skill 是 `skills/<名字>/`：`SKILL.md` 告诉 agent 怎么用，`scripts/` 是它跑的命令。skill 不在 Agent Tome 的应用里，也不在 `tomed` 里，不装 Agent Tome 也能单独用。
+English · [简体中文](README.zh-CN.md) · [日本語](README.ja.md)
 
-| skill | 做什么 |
+Skills for coding agents, made for Agent Tome and usable without it. Each skill is a folder `skills/<name>/`: `SKILL.md` tells the agent how to use it, and `scripts/` holds the commands it runs. A skill starts a small page on your own computer; the agent hands you the address, you work in the browser, and the agent reads what you did and answers.
+
+| skill | what it does |
 | --- | --- |
-| `tome-board` | 画板（Excalidraw）：在浏览器里和 agent 一起画，文件存在 Obsidian 卡片库里 |
-| `tome-md` | Markdown：在浏览器里看渲染好的文档，选中一段评论或提问，agent 在评论下面回答、改文件 |
+| `tome-board` | A drawing board (Excalidraw): you and the agent draw on the same board in the browser, and the file is kept in your Obsidian vault |
+| `tome-md` | Markdown: read a file rendered in the browser, select a passage to comment on or ask about, and the agent answers in the thread and edits the file |
 
-## 安装
+## Install
 
-把 skill 的文件夹链接到 agent 放 skill 的地方（Claude Code 是 `~/.claude/skills/`）：
+Link the skill's folder into the place your agent reads skills from (for Claude Code, `~/.claude/skills/`):
 
 ```sh
 ln -s "$PWD/skills/tome-board" ~/.claude/skills/tome-board
 ln -s "$PWD/skills/tome-md" ~/.claude/skills/tome-md
 ```
 
-`tome-md` 不用构建，链接上就能用。`tome-board` 的页面要先构建一次（Node 20+）：
+`tome-md` needs no build: once linked, it works. The page of `tome-board` is built once (Node 20+):
 
 ```sh
 cd apps/board && npm ci --ignore-scripts && node build.mjs
 ```
 
-## tome-board：画板
+## tome-board: the drawing board
 
-和 claude slides・claude design 同一种做法：`scripts/board.mjs` 是命令和本机服务（Node 20+，没有依赖），`scripts/editor/` 是页面（从 `apps/board` 构建，不进 git）。agent 跑 `open` 拿到地址交给人。
+`scripts/board.mjs` is both the command and the local server (Node 20+, no dependencies). `scripts/editor/` is the page, built from `apps/board` and not kept in git. The agent runs `open` and gives you the address.
 
 ```sh
-node skills/tome-board/scripts/board.mjs open          # 没在跑就启动，打印 {"url": "http://127.0.0.1:4740/", …}：画板库
-node skills/tome-board/scripts/board.mjs open 流程图    # 这张画板的地址、文件、png；没有这张就给出页面上问要不要创建的地址
-node skills/tome-board/scripts/board.mjs new 流程图     # 新建一张空的，并给出挂到卡片上的两行
+node skills/tome-board/scripts/board.mjs open            # starts it if needed; prints {"url": "http://127.0.0.1:4740/", …}: the list of boards
+node skills/tome-board/scripts/board.mjs open flow       # that board's address, file and png; no such board: an address where the page asks whether to make it
+node skills/tome-board/scripts/board.mjs new flow        # makes an empty board and prints the two lines that attach it to a note
 node skills/tome-board/scripts/board.mjs list
 node skills/tome-board/scripts/board.mjs stop
-node skills/tome-board/scripts/board.mjs comments --wait        # 等人在页面上把评论发给 agent，打印那条评论后结束
-node skills/tome-board/scripts/board.mjs comment-reply <id> "…"  # 回复（--resolve 同时关掉）；comment-resolve <id> 只关掉
+node skills/tome-board/scripts/board.mjs comments --wait         # waits until you send a comment to the agent, prints that comment and ends
+node skills/tome-board/scripts/board.mjs comment-reply <id> "…"  # replies (--resolve also closes it); comment-resolve <id> only closes it
 ```
 
-- 卡片库：`--vault`，没给就按 `$TOME_BOARD_VAULT`、Agent Tome 设的卡片库（home 的 `config.json`）、当前文件夹往上找到的 Obsidian 库的顺序找。
-- 文件：卡片库的 `Excalidraw/`（Obsidian 的 Excalidraw 插件设了别的文件夹就跟它走）里的 `<名字>.excalidraw.md`，和插件同一种格式，两边都能开。停笔 0.8 秒自动保存，同时在旁边写一张整张图的 `<名字>.png`（给 agent 看的）。
-- agent 直接改 `.excalidraw.md` 里 ```json 的 elements，开着的页面马上换新，改过的元素描绿框（右上角「外部改了 N 处」点掉），⌘Z 能撤回；页面随后按自己的格式重写一遍并更新 png。
-- 区域评论：页面右上角「评论」。先选中图形再点，或者点了之后拖一块区域・点一个图形，写要怎么改或提问。有 agent 在跑 `comments --wait` 时按钮是「发给 Agent」，那条评论（文字、区域、里面的图形、图形的截图）交给它；没有就只保存，agent 用 `comments` 读。agent 的回复显示在评论下面。评论不放在卡片库里，在 `~/.tome-board/comments/`。
-- 画板库（`/`）：最近改过的在前，按名字搜，「新画板」。菜单（☰）里有「全部画板」「复制图片路径」「复制文件路径」。
-- 一个卡片库一个进程，管这个库的全部画板。只听 127.0.0.1（默认 4740，被占就往上找）。只接受发给这台机器（`127.0.0.1`・`localhost`，端口不限：容器转发出来的端口可能不一样）的请求，别的网站的页面读不到也写不了；只碰画板文件夹里的 `.excalidraw.md`・`.excalidraw`・`.png`，写入是原子的、带 rev。
-- 在跑的进程记在 `~/.tome-board/servers/<id>.json`（`$TOME_BOARD_HOME` 可以换地方）：`pid`・`url`・`port`・`root`・`kind: "board"`・`startedAt`，和 claude slides・design 写在各自文件夹里的 `.artifact-server.json` 同样的字段。Agent Tome 的「本机页面」靠它列出画板。脚本或页面更新后下一次 `open` 会换成新的进程。
-- 测试：`cd apps/board && npm test`（文件格式・文字的翻译・服务的规则）。
-- 第三方许可（Excalidraw、字体、依赖）在 `scripts/editor/THIRD_PARTY_LICENSES.txt`，画板库页面最下面有链接。不带 Mermaid 导入和协作。
+- **Vault**: `--vault`. Without it, the script looks at `$TOME_BOARD_VAULT`, then the vault Agent Tome is set to (`config.json` in its home), then the nearest Obsidian vault above the current folder.
+- **Files**: `<name>.excalidraw.md` in the vault's `Excalidraw/` folder (or the folder the Obsidian Excalidraw plugin is set to). It is the plugin's own format, so Obsidian opens the same file. The page saves 0.8 seconds after you stop drawing, and writes a picture of the whole board beside it, `<name>.png`, for the agent to look at.
+- **The agent draws** by editing the `elements` in the file's `json` block. An open page shows the change at once, with a green frame around what changed (dismiss it with "N changed from outside" at the top right), and ⌘Z undoes it. The page then writes the file again in its own form and renews the picture.
+- **Comments on a region**: press Comment at the top right, with shapes selected, or then drag over an area or click a shape, and write what to change or ask. While an agent runs `comments --wait` the button reads "Send to Agent" and the comment goes to it (your words, the region, the shapes in it, a picture of those shapes). Otherwise the comment is only saved, and the agent reads it with `comments`. The agent's reply shows under the comment. Comments are kept in `~/.tome-board/comments/`, not in the vault.
+- **The list of boards** (`/`): the last changed first, search by name, "New board". The menu (☰) has "All boards", "Copy picture path" and "Copy file path".
+- **One process per vault**, serving all of its boards. It listens on 127.0.0.1 only (4740, or the next free port up) and answers only requests addressed to this computer (`127.0.0.1` or `localhost`, at any port, since a port forwarded out of a container may differ), so a page of another site can neither read nor write. It touches only `.excalidraw.md`, `.excalidraw` and `.png` files in the board folder; writes are atomic and carry a revision.
+- **The running process** is noted in `~/.tome-board/servers/<id>.json` (`$TOME_BOARD_HOME` moves it): `pid`, `url`, `port`, `root`, `kind: "board"`, `startedAt`. Agent Tome lists the board among its local pages from this file. After the script or the page is updated, the next `open` replaces the old process.
+- **Tests**: `cd apps/board && npm test` (the file format, the page's translations, the server's rules).
+- **Third-party licenses** (Excalidraw, the fonts, the packages) are in `scripts/editor/THIRD_PARTY_LICENSES.txt`, linked at the foot of the list of boards. Mermaid import and collaboration are left out.
 
+## tome-md: Markdown
 
-## tome-md：Markdown
-
-`scripts/md.mjs` 是命令和本机服务（Node 20+，没有依赖），`scripts/page/` 是页面（原生 JS，不用构建；Markdown 的解析用随附的 marked，许可在 `scripts/page/vendor/marked.LICENSE.md`）。
+`scripts/md.mjs` is both the command and the local server (Node 20+, no dependencies). `scripts/page/` is the page: plain JavaScript, no build. Markdown is parsed by the copy of marked shipped beside it (its license: `scripts/page/vendor/marked.LICENSE.md`).
 
 ```sh
-node skills/tome-md/scripts/md.mjs open 笔记.md        # 没在跑就启动，打印 {"url": "http://127.0.0.1:4750/d/<id>", …}
-node skills/tome-md/scripts/md.mjs open               # 打开过的文件的列表页
+node skills/tome-md/scripts/md.mjs open notes.md       # starts it if needed; prints {"url": "http://127.0.0.1:4750/d/<id>", …}
+node skills/tome-md/scripts/md.mjs open                # the page that lists the opened files
 node skills/tome-md/scripts/md.mjs list
-node skills/tome-md/scripts/md.mjs close 笔记.md       # 从列表里拿掉（文件不动）
+node skills/tome-md/scripts/md.mjs close notes.md      # takes it off the list (the file stays)
 node skills/tome-md/scripts/md.mjs stop
-node skills/tome-md/scripts/md.mjs comments --wait        # 等人在页面上把评论发给 agent，打印那条评论后结束
-node skills/tome-md/scripts/md.mjs comment-reply <id> "…"  # 回复（--resolve 同时关掉）；comment-resolve <id> 只关掉
+node skills/tome-md/scripts/md.mjs comments --wait         # waits until you send a comment to the agent, prints that comment and ends
+node skills/tome-md/scripts/md.mjs comment-reply <id> "…"  # replies (--resolve also closes it); comment-resolve <id> only closes it
 ```
 
-- 页面只读文件，不改。人用自己的编辑器改，agent 直接改文件；文件一变页面马上换新，新的和改过的段落左边描绿（右上角「改了 N 处」点掉）。
-- 评论：选中一段文字点「评论」，或者在右边面板最上面的框里对整篇文档说话。「添加注释」只存下来不发；有 agent 在跑 `comments --wait` 时旁边多一个「发给 Agent」，把这一条和这个文件里之前加的注释一起交给它（文字、选中的原文、所在的行、所在的标题）。没有 agent 在等时注释只保存，agent 用 `comments` 读。agent 的回复显示在评论下面。
-- 只显示用 `open` 打开过的文件（`.md`・`.markdown`），页面上没有打开别的文件的入口。图片只显示文件旁边的（同一个卡片库或仓库里、不在隐藏文件夹里），网上的图片不加载；文件里写的 HTML 当文字显示，不执行。
-- 一台机器一个进程。只听 127.0.0.1（默认 4750，被占就往上找），和画板一样只接受发给这台机器的请求。
-- 自己的记录都在 `~/.tome-md/`（`$TOME_MD_HOME` 可以换地方）：打开过的文件、在跑的进程（`servers/main.json`，`kind: "md"`）、评论。
-- 测试：`cd apps/md && npm test`。
+- **The page reads the file and never writes it.** You edit it in your own editor, the agent edits the file directly. When the file changes the page shows it at once, with a green bar beside the new and rewritten blocks (dismiss it with "N changed" at the top right).
+- **Comments**: select some text and press Comment, or write about the whole file in the box at the top of the panel. "Add note" keeps a comment without sending it. While an agent runs `comments --wait` there is also "Send to Agent", which hands it this comment together with the notes added before it on that file (your words, the selected text, its lines, the heading it is under). When no agent is waiting, notes are only saved, and the agent reads them with `comments`. The agent's reply shows under the comment.
+- **Only files opened with `open`** are shown (`.md`, `.markdown`); the page has no way to open another file. Pictures show when they are files beside the Markdown file (in the same vault or repository, not in a hidden folder); pictures on the web are not loaded. HTML written in the file is shown as text, not run.
+- **One process per computer.** It listens on 127.0.0.1 only (4750, or the next free port up) and, like the board, answers only requests addressed to this computer.
+- **Its own notes** are all in `~/.tome-md/` (`$TOME_MD_HOME` moves it): the opened files, the running process (`servers/main.json`, `kind: "md"`), the comments.
+- **Tests**: `cd apps/md && npm test`.
+
+## License
+
+MIT, see [LICENSE](LICENSE).
