@@ -377,7 +377,8 @@ async function showDoc(id) {
     return { quote, lines: [first.line, Math.max(first.end, last.end)], heading: first.heading };
   }
 
-  document.addEventListener("selectionchange", () => {
+  /** Puts the Comment button at the end of the selection; nothing of the document selected: hides it. */
+  function placeFloat() {
     const anchor = selectionAnchor();
     if (!anchor) return void (float.hidden = true);
     const rects = getSelection().getRangeAt(0).getClientRects();
@@ -386,7 +387,23 @@ async function showDoc(id) {
     float.hidden = false;
     float.style.left = Math.min(r.right + 6, innerWidth - 90) + "px";
     float.style.top = Math.max(8, r.top - 4) + "px";
+  }
+  // Not while the mouse is still selecting: a button that comes up under
+  // the pointer would pull the selection to the end of the page.
+  let selecting = false;
+  document.addEventListener("pointerdown", (e) => {
+    if (e.target === float) return;
+    selecting = true;
+    float.hidden = true;
   });
+  const settled = () => {
+    selecting = false;
+    // After the browser has settled the selection (a click clears it a moment later).
+    setTimeout(placeFloat, 0);
+  };
+  document.addEventListener("pointerup", settled);
+  document.addEventListener("pointercancel", settled);
+  document.addEventListener("selectionchange", () => !selecting && placeFloat());
   // The click must not take the selection away before it is read.
   float.addEventListener("mousedown", (e) => e.preventDefault());
   float.addEventListener("click", () => {
