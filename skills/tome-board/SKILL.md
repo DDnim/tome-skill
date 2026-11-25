@@ -67,13 +67,14 @@ enough:
 
 ```json
 {"id":"box-login","type":"rectangle","x":100,"y":100,"width":220,"height":90,"strokeColor":"#1e1e1e","backgroundColor":"#a5d8ff","fillStyle":"solid","roundness":{"type":3}}
-{"id":"txt-login","type":"text","x":150,"y":132,"text":"Login","fontSize":20,"containerId":null}
+{"id":"txt-login","type":"text","x":150,"y":132,"text":"Login","fontSize":20,"fontFamily":5,"containerId":null}
 {"id":"arr-1","type":"arrow","x":320,"y":145,"width":120,"height":0,"points":[[0,0],[120,0]],"endArrowhead":"arrow"}
 ```
 
 - `id`: unique in the file; a new element takes a new id, a changed one keeps its id.
 - Types: `rectangle`, `ellipse`, `diamond`, `text`, `arrow`, `line`, `freedraw`, `frame`, `image` (leave
   `image` elements and `files` alone).
+- Text: give `fontFamily` (5 is the hand-drawn face the page uses); without it the text shows in a serif.
 - `x`,`y` grow right and down, in px. `arrow` and `line` need `points`, relative to their `x`,`y`.
 - Text inside a shape: the text's `containerId` is the shape's id, and the shape lists it in
   `boundElements: [{"type":"text","id":"<text id>"}]`. Simpler and safe: a free text placed over the shape.
