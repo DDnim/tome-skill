@@ -26,6 +26,10 @@ cd apps/board && npm ci --ignore-scripts && node build.mjs
 
 ## tome-board：ボード
 
+![ボードの範囲を選んでコメントをエージェントに送ると、エージェントが図を直して返信する](docs/tome-board.gif)
+
+*範囲を選んでコメントすると、エージェントが図を直し、スレッドで返信します。（デモは英語の画面です。ページはブラウザーの言語に合わせて表示されます。）*
+
 `scripts/board.mjs` がコマンドとローカルサーバーを兼ねます（Node 20 以上、依存パッケージなし）。`scripts/editor/` がページで、`apps/board` からビルドします（git には入れません）。エージェントが `open` を実行し、出てきたアドレスを人に渡します。
 
 ```sh
@@ -49,6 +53,10 @@ node skills/tome-board/scripts/board.mjs comment-reply <id> "…"  # 返信（--
 - **サードパーティのライセンス**（Excalidraw、フォント、依存パッケージ）は `scripts/editor/THIRD_PARTY_LICENSES.txt` にあり、ボードの一覧の一番下からリンクしています。Mermaid の取り込みと共同編集は入れていません。
 
 ## tome-md：Markdown
+
+![文章を選んでコメントをエージェントに送ると、エージェントが段落を書き直して返信し、続けてファイル全体への質問に答える](docs/tome-md.gif)
+
+*文章を選んでコメントすると、エージェントがファイルを直して返信します。続けてファイル全体について質問しています。（デモは英語の画面です。ページはブラウザーの言語に合わせて表示されます。）*
 
 `scripts/md.mjs` がコマンドとローカルサーバーを兼ねます（Node 20 以上、依存パッケージなし）。`scripts/page/` がページで、素の JavaScript なのでビルドは不要です。Markdown の解析には同梱の marked を使います（ライセンスは `scripts/page/vendor/marked.LICENSE.md`）。
 

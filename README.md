@@ -26,6 +26,10 @@ cd apps/board && npm ci --ignore-scripts && node build.mjs
 
 ## tome-board: the drawing board
 
+![A comment on a region of the board is sent to the agent, which redraws that part and replies](docs/tome-board.gif)
+
+*You comment on a region; the agent changes the drawing and replies in the thread.*
+
 `scripts/board.mjs` is both the command and the local server (Node 20+, no dependencies). `scripts/editor/` is the page, built from `apps/board` and not kept in git. The agent runs `open` and gives you the address.
 
 ```sh
@@ -49,6 +53,10 @@ node skills/tome-board/scripts/board.mjs comment-reply <id> "…"  # replies (--
 - **Third-party licenses** (Excalidraw, the fonts, the packages) are in `scripts/editor/THIRD_PARTY_LICENSES.txt`, linked at the foot of the list of boards. Mermaid import and collaboration are left out.
 
 ## tome-md: Markdown
+
+![Selected text is sent to the agent with a comment; the agent rewrites the paragraph and replies, then answers a question about the whole file](docs/tome-md.gif)
+
+*You select a passage and comment; the agent edits the file and replies. Then a question about the whole file.*
 
 `scripts/md.mjs` is both the command and the local server (Node 20+, no dependencies). `scripts/page/` is the page: plain JavaScript, no build. Markdown is parsed by the copy of marked shipped beside it (its license: `scripts/page/vendor/marked.LICENSE.md`).
 

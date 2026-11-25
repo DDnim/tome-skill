@@ -26,6 +26,10 @@ cd apps/board && npm ci --ignore-scripts && node build.mjs
 
 ## tome-board：画板
 
+![在画板上框选一块区域写评论发给 agent，agent 改图并回复](docs/tome-board.gif)
+
+*框选一块区域写评论，agent 改图并在评论下面回复。（演示画面是英文界面，页面会跟随浏览器的语言。）*
+
 和 claude slides・claude design 同一种做法：`scripts/board.mjs` 是命令和本机服务（Node 20+，没有依赖），`scripts/editor/` 是页面（从 `apps/board` 构建，不进 git）。agent 跑 `open` 拿到地址交给人。
 
 ```sh
@@ -49,6 +53,10 @@ node skills/tome-board/scripts/board.mjs comment-reply <id> "…"  # 回复（--
 - 第三方许可（Excalidraw、字体、依赖）在 `scripts/editor/THIRD_PARTY_LICENSES.txt`，画板库页面最下面有链接。不带 Mermaid 导入和协作。
 
 ## tome-md：Markdown
+
+![选中一段文字写评论发给 agent，agent 改写这一段并回复，然后回答一个关于整篇的问题](docs/tome-md.gif)
+
+*选中一段文字写评论，agent 改文件并回复；接着对整篇文档提问。（演示画面是英文界面，页面会跟随浏览器的语言。）*
 
 `scripts/md.mjs` 是命令和本机服务（Node 20+，没有依赖），`scripts/page/` 是页面（原生 JS，不用构建；Markdown 的解析用随附的 marked，许可在 `scripts/page/vendor/marked.LICENSE.md`）。
 
