@@ -16,12 +16,13 @@ const zh = {
   "{n} changed": "改了 {n} 处",
   "Comment": "评论",
   "Comments": "评论",
-  "An agent is listening.": "Agent 在等评论。",
-  "No agent is listening. Comments are saved for it to read.": "没有 Agent 在等。评论会存下来，等它来读。",
+  "An agent is listening. Sending one comment sends your notes with it.": "Agent 在等评论。发给它时，之前加的注释会一起发出去。",
+  "No agent is listening. Notes are saved for it to read.": "没有 Agent 在等。注释会存下来，等它来读。",
   "Ask about this file, or say what to change.": "对这篇文档提问，或者说要怎么改。",
   "What about this part? Ask, or say what to change.": "这一段怎么了？提问，或者说要怎么改。",
   "Send to Agent": "发给 Agent",
-  "Save": "保存",
+  "Add note": "添加注释",
+  "Note, not sent": "注释，还没发",
   "Reply": "回复",
   "Resolve": "解决",
   "Sent to Agent": "已发给 Agent",
@@ -44,12 +45,13 @@ const ja = {
   "{n} changed": "{n} か所変更",
   "Comment": "コメント",
   "Comments": "コメント",
-  "An agent is listening.": "Agent がコメントを待っています。",
-  "No agent is listening. Comments are saved for it to read.": "待っている Agent はいません。コメントは保存され、あとで読まれます。",
+  "An agent is listening. Sending one comment sends your notes with it.": "Agent がコメントを待っています。送ると、それまでのメモも一緒に送られます。",
+  "No agent is listening. Notes are saved for it to read.": "待っている Agent はいません。メモは保存され、あとで読まれます。",
   "Ask about this file, or say what to change.": "この文書について質問するか、どう変えるかを書く。",
   "What about this part? Ask, or say what to change.": "この部分について質問するか、どう変えるかを書く。",
   "Send to Agent": "Agent に送る",
-  "Save": "保存",
+  "Add note": "メモを追加",
+  "Note, not sent": "メモ（未送信）",
   "Reply": "返信",
   "Resolve": "解決",
   "Sent to Agent": "Agent に送信済み",
@@ -237,7 +239,7 @@ async function showDoc(id) {
   const composer = (key, placeholder) => `
     <div class="composer" data-key="${esc(key)}">
       <textarea rows="3" placeholder="${esc(placeholder)}">${esc(state.texts[key] ?? "")}</textarea>
-      <div class="actions"><button class="primary submit">${esc(state.listening ? t("Send to Agent") : t("Save"))}</button></div>
+      <div class="actions"><button class="note">${esc(t("Add note"))}</button>${state.listening ? `<button class="primary submit">${esc(t("Send to Agent"))}</button>` : ""}</div>
     </div>`;
 
   function renderPanel() {
@@ -245,7 +247,7 @@ async function showDoc(id) {
     const caret = focused ? [document.activeElement.selectionStart, document.activeElement.selectionEnd] : null;
     const threads = openThreads();
     panel.innerHTML =
-      `<div class="agent${state.listening ? " on" : ""}">${esc(state.listening ? t("An agent is listening.") : t("No agent is listening. Comments are saved for it to read."))}</div>` +
+      `<div class="agent${state.listening ? " on" : ""}">${esc(state.listening ? t("An agent is listening. Sending one comment sends your notes with it.") : t("No agent is listening. Notes are saved for it to read."))}</div>` +
       `<div class="new">` +
       (state.draft
         ? `<blockquote>${esc(state.draft.quote.slice(0, 300))}<button class="drop" title="${esc(t("Drop the selection"))}">×</button></blockquote>` + composer("new", t("What about this part? Ask, or say what to change."))
@@ -263,7 +265,7 @@ async function showDoc(id) {
             `<div class="thread${on ? " on" : ""}" data-thread="${esc(x.id)}">` +
             `<div class="thread-head"><span class="pin static">${x.n}</span>` +
             (x.anchor ? "" : `<span class="dim">${esc(t("Whole file"))}</span>`) +
-            (mine && x.sent ? `<span class="dim">${esc(t("Sent to Agent"))}</span>` : "") +
+            (mine ? `<span class="dim">${esc(x.sent ? t("Sent to Agent") : t("Note, not sent"))}</span>` : "") +
             `<button class="resolve">${esc(t("Resolve"))}</button></div>` +
             (x.anchor ? `<blockquote>${esc(x.anchor.quote.slice(0, 200))}</blockquote>` : "") +
             x.messages.map((m) => `<div class="message ${esc(m.from)}"><i>${esc(m.from === "agent" ? t("Agent") : t("You"))}</i><div>${esc(m.text)}</div></div>`).join("") +
@@ -287,7 +289,8 @@ async function showDoc(id) {
     await loadComments();
   }
 
-  async function submit(key) {
+  /** Saves what was written. `send`: hands it to the agent, with the notes added before it; not: it stays a note. */
+  async function submit(key, send) {
     const text = (state.texts[key] ?? "").trim();
     if (!text) return;
     state.texts[key] = "";
@@ -295,8 +298,8 @@ async function showDoc(id) {
       if (key === "new") {
         const anchor = state.draft;
         state.draft = null;
-        await act({ op: "new", anchor, text, send: state.listening });
-      } else await act({ op: "say", id: key.slice("reply:".length), text, send: state.listening });
+        await act({ op: "new", anchor, text, send });
+      } else await act({ op: "say", id: key.slice("reply:".length), text, send });
     } catch (e) {
       state.texts[key] = text;
       console.error(e);
@@ -320,11 +323,12 @@ async function showDoc(id) {
   });
   panel.addEventListener("keydown", (e) => {
     const key = e.target.closest(".composer")?.dataset.key;
-    if (key && e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit(key);
+    if (key && e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit(key, state.listening);
   });
   panel.addEventListener("click", (e) => {
     const thread = e.target.closest(".thread")?.dataset.thread;
-    if (e.target.closest(".submit")) return void submit(e.target.closest(".composer").dataset.key);
+    if (e.target.closest(".submit")) return void submit(e.target.closest(".composer").dataset.key, true);
+    if (e.target.closest(".note")) return void submit(e.target.closest(".composer").dataset.key, false);
     if (e.target.closest(".drop")) {
       state.draft = null;
       mark();

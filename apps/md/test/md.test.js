@@ -135,6 +135,19 @@ test("comments: saved, sent, taken by a waiting agent, answered", async () => {
   const late = await waiting;
   assert.deepEqual([late.file, late.quote, late.lines, late.messages[0].text], [b.file, null, null, "what is this file for?"]);
 
+  // Notes wait; sending one comment sends the file's notes with it, in one go.
+  const n1 = json(await post(b, { op: "new", anchor: null, text: "note one" })).thread;
+  const n2 = json(await post(b, { op: "new", anchor: { quote: "B", lines: [1, 1] }, text: "note two" })).thread;
+  await post(a, { op: "new", anchor: null, text: "a note on the other file" });
+  assert.equal(await take(null, 1), null);
+  await post(b, { op: "new", anchor: null, text: "now send", send: true });
+  const all = json(await handle(ctx, req("POST", `/api/comments/take?ms=1000`)));
+  assert.deepEqual([all.thread.id, ...all.also.map((x) => x.id)].slice(0, 2), [n1.id, n2.id]);
+  assert.deepEqual([all.thread.messages[0].text, ...all.also.map((x) => x.messages[0].text)], ["note one", "note two", "now send"]);
+  assert.equal((await get(a)).threads.at(-1).sent, null);
+  assert.equal(await take(null, 1), null);
+  await post(a, { op: "resolve", id: (await get(a)).threads.at(-1).id });
+
   comments.say(made.id, "agent", "ok", { resolve: true });
   assert.equal((await get(a)).threads[0].resolved, true);
   assert.equal((await post(a, { op: "resolve", id: made.id, resolved: false })).status, 200);

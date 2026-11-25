@@ -169,6 +169,7 @@ function asset(doc, src) {
 // at}], sent, taken, resolved}. `anchor`: {quote, lines: [first, last],
 // heading} for a comment on selected text, null for one on the whole file.
 // `sent`: the person handed it to an agent; `taken`: a waiting agent got it.
+// A thread not sent is a note: it goes out with the next one that is sent.
 
 function commentText(v) {
   const text = typeof v === "string" ? v.trim() : "";
@@ -223,6 +224,13 @@ export class Comments {
     throw new Fail("NotFound", `no comment ${id}`);
   }
 
+  /** Sending one sends the file's notes too: the open threads the person wrote last in and never sent. */
+  sendNotes(data, at) {
+    for (const t of data.threads) {
+      if (!t.resolved && !t.sent && t.messages[t.messages.length - 1]?.from === "user") t.sent = at;
+    }
+  }
+
   add(doc, { anchor, text, send }) {
     const body = commentText(text);
     const where = cleanAnchor(anchor);
@@ -230,6 +238,7 @@ export class Comments {
     const at = now();
     const thread = { id: crypto.randomBytes(5).toString("hex"), n: data.next, at, anchor: where, messages: [{ from: "user", text: body, at }], sent: send ? at : null, taken: null, resolved: false };
     data.next += 1;
+    if (send) this.sendNotes(data, at);
     data.threads.push(thread);
     this.store(data);
     return thread;
@@ -244,6 +253,7 @@ export class Comments {
       thread.sent = send ? at : null;
       thread.taken = null;
       thread.resolved = false;
+      if (send) this.sendNotes(data, at);
     } else if (resolve) thread.resolved = true;
     this.store(data);
     return { data, thread };
@@ -254,6 +264,7 @@ export class Comments {
     thread.sent = now();
     thread.taken = null;
     thread.resolved = false;
+    this.sendNotes(data, thread.sent);
     this.store(data);
     return { data, thread };
   }
@@ -265,18 +276,20 @@ export class Comments {
     return { data, thread };
   }
 
-  /** The oldest thread sent and not yet taken (of that file; null: of any), marked taken; null: none. */
+  /** Every thread sent and not yet taken (of that file; null: of any), marked taken: [{data, thread}], a file's in their order. */
   take(doc) {
-    let first = null;
+    const out = [];
+    const at = now();
     for (const data of doc === null ? this.all() : [this.load(doc)]) {
-      for (const thread of data.threads) {
-        if (thread.sent && !thread.taken && !thread.resolved && (!first || thread.sent < first.thread.sent)) first = { data, thread };
+      const mine = data.threads.filter((t) => t.sent && !t.taken && !t.resolved);
+      if (mine.length === 0) continue;
+      for (const thread of mine) {
+        thread.taken = at;
+        out.push({ data, thread });
       }
+      this.store(data);
     }
-    if (!first) return null;
-    first.thread.taken = now();
-    this.store(first.data);
-    return first;
+    return out;
   }
 }
 
@@ -408,7 +421,7 @@ export async function handle(ctx, req) {
       return bad("op");
     }
     if (route === "POST /api/comments/take") {
-      // An agent's wait: the next thread the person sent ({thread}), or {thread: null} after a while.
+      // An agent's wait: what the person sent ({thread, also: the others sent with it}), or {thread: null} after a while.
       // While it waits the page offers "Send to Agent".
       const id = req.query.get("id");
       const doc = id === null ? null : docs.get(id);
@@ -417,8 +430,8 @@ export async function handle(ctx, req) {
       waiters.set(key, { id, until: until + LISTEN_GRACE_MS });
       try {
         for (;;) {
-          const got = comments.take(doc);
-          if (got) return json(200, { thread: describeThread(got.data.file, got.thread) });
+          const [first, ...rest] = comments.take(doc).map((g) => describeThread(g.data.file, g.thread));
+          if (first) return json(200, { thread: first, also: rest });
           if (Date.now() >= until || req.gone?.()) return json(200, { thread: null });
           await new Promise((r) => setTimeout(r, TAKE_STEP_MS));
         }
@@ -655,8 +668,8 @@ async function main(argv) {
           const query = new URLSearchParams(doc ? { id: doc.id } : {});
           const res = await fetch(`${state.url}api/comments/take?${query}`, { method: "POST", headers: { [WRITE_HEADER]: "1" }, signal: AbortSignal.timeout(WAIT_MS + 15000) });
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          const { thread } = await res.json();
-          if (thread) return print({ ...thread, next: again });
+          const { thread, also } = await res.json();
+          if (thread) return print({ ...thread, also: also ?? [], next: again });
         } catch {
           await new Promise((r) => setTimeout(r, 2000));
         }
