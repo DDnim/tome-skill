@@ -5,6 +5,7 @@ Agent Tome 的 skill。每个 skill 是 `skills/<名字>/`：`SKILL.md` 告诉 a
 | skill | 做什么 |
 | --- | --- |
 | `tome-board` | 画板（Excalidraw）：在浏览器里和 agent 一起画，文件存在 Obsidian 卡片库里 |
+| `tome-md` | Markdown：在浏览器里看渲染好的文档，选中一段评论或提问，agent 在评论下面回答、改文件 |
 
 ## 安装
 
@@ -12,9 +13,10 @@ Agent Tome 的 skill。每个 skill 是 `skills/<名字>/`：`SKILL.md` 告诉 a
 
 ```sh
 ln -s "$PWD/skills/tome-board" ~/.claude/skills/tome-board
+ln -s "$PWD/skills/tome-md" ~/.claude/skills/tome-md
 ```
 
-`tome-board` 的页面要先构建一次（Node 20+）：
+`tome-md` 不用构建，链接上就能用。`tome-board` 的页面要先构建一次（Node 20+）：
 
 ```sh
 cd apps/board && npm ci --ignore-scripts && node build.mjs
@@ -43,3 +45,25 @@ node skills/tome-board/scripts/board.mjs comment-reply <id> "…"  # 回复（--
 - 在跑的进程记在 `~/.tome-board/servers/<id>.json`（`$TOME_BOARD_HOME` 可以换地方）：`pid`・`url`・`port`・`root`・`kind: "board"`・`startedAt`，和 claude slides・design 写在各自文件夹里的 `.artifact-server.json` 同样的字段。Agent Tome 的「本机页面」靠它列出画板。脚本或页面更新后下一次 `open` 会换成新的进程。
 - 测试：`cd apps/board && npm test`（文件格式・文字的翻译・服务的规则）。
 - 第三方许可（Excalidraw、字体、依赖）在 `scripts/editor/THIRD_PARTY_LICENSES.txt`，画板库页面最下面有链接。不带 Mermaid 导入和协作。
+
+
+## tome-md：Markdown
+
+`scripts/md.mjs` 是命令和本机服务（Node 20+，没有依赖），`scripts/page/` 是页面（原生 JS，不用构建；Markdown 的解析用随附的 marked，许可在 `scripts/page/vendor/marked.LICENSE.md`）。
+
+```sh
+node skills/tome-md/scripts/md.mjs open 笔记.md        # 没在跑就启动，打印 {"url": "http://127.0.0.1:4750/d/<id>", …}
+node skills/tome-md/scripts/md.mjs open               # 打开过的文件的列表页
+node skills/tome-md/scripts/md.mjs list
+node skills/tome-md/scripts/md.mjs close 笔记.md       # 从列表里拿掉（文件不动）
+node skills/tome-md/scripts/md.mjs stop
+node skills/tome-md/scripts/md.mjs comments --wait        # 等人在页面上把评论发给 agent，打印那条评论后结束
+node skills/tome-md/scripts/md.mjs comment-reply <id> "…"  # 回复（--resolve 同时关掉）；comment-resolve <id> 只关掉
+```
+
+- 页面只读文件，不改。人用自己的编辑器改，agent 直接改文件；文件一变页面马上换新，新的和改过的段落左边描绿（右上角「改了 N 处」点掉）。
+- 评论：选中一段文字点「评论」，或者在右边面板最上面的框里对整篇文档说话。有 agent 在跑 `comments --wait` 时按钮是「发给 Agent」，那条评论（文字、选中的原文、所在的行、所在的标题）交给它；没有就只保存，agent 用 `comments` 读。agent 的回复显示在评论下面。
+- 只显示用 `open` 打开过的文件（`.md`・`.markdown`），页面上没有打开别的文件的入口。图片只显示文件旁边的（同一个卡片库或仓库里、不在隐藏文件夹里），网上的图片不加载；文件里写的 HTML 当文字显示，不执行。
+- 一台机器一个进程。只听 127.0.0.1（默认 4750，被占就往上找），和画板一样只接受发给这台机器的请求。
+- 自己的记录都在 `~/.tome-md/`（`$TOME_MD_HOME` 可以换地方）：打开过的文件、在跑的进程（`servers/main.json`，`kind: "md"`）、评论。
+- 测试：`cd apps/md && npm test`。

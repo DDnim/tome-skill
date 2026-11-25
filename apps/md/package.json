@@ -1,0 +1,10 @@
+{
+  "name": "tome-md-tests",
+  "private": true,
+  "description": "Tests of the tome-md skill (skills/tome-md/scripts). The skill itself needs no build and no packages.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/"
+  }
+}
