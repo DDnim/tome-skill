@@ -200,3 +200,49 @@ test("every word the page says has its 中文 and 日本語", () => {
   const print = fs.readFileSync(path.join(scripts, "page/print.js"), "utf8");
   for (const name of ["zh", "ja", "en"]) assert.match(print, new RegExp(`${name}: \\{ wait: .*, ready: .*, print: .* \\}`), name);
 });
+
+test("the PowerPoint file: a zip of the parts, a picture and the notes on each slide", async () => {
+  const zlib = await import("node:zlib");
+  const { crc32, makePptx } = await import(path.join(scripts, "pptx.mjs"));
+  assert.equal(crc32(Buffer.from("123456789")), 0xcbf43926);
+  const png = Buffer.from("89504e470d0a1a0a", "hex");
+  const file = makePptx({
+    title: "Q3 <plan> & more",
+    size: [1920, 1080],
+    slides: [
+      { png, title: "Cover", notes: "Say hi.\n\n<b>& bye</b>", transition: "fade" },
+      { png, title: "Plan", notes: "", transition: "slide" },
+    ],
+  });
+  // Read it back: the central directory, then each entry.
+  const end = file.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
+  const count = file.readUInt16LE(end + 10);
+  let at = file.readUInt32LE(end + 16);
+  const parts = new Map();
+  for (let i = 0; i < count; i++) {
+    assert.equal(file.readUInt32LE(at), 0x02014b50);
+    const method = file.readUInt16LE(at + 10);
+    const crc = file.readUInt32LE(at + 16);
+    const size = file.readUInt32LE(at + 20);
+    const nameLen = file.readUInt16LE(at + 28);
+    const local = file.readUInt32LE(at + 42);
+    const name = file.subarray(at + 46, at + 46 + nameLen).toString("utf8");
+    const start = local + 30 + file.readUInt16LE(local + 26) + file.readUInt16LE(local + 28);
+    const body = file.subarray(start, start + size);
+    const raw = method === 8 ? zlib.inflateRawSync(body) : body;
+    assert.equal(crc32(raw), crc, name);
+    parts.set(name, raw);
+    at += 46 + nameLen;
+  }
+  assert.equal([...parts.keys()][0], "[Content_Types].xml");
+  for (const name of ["ppt/presentation.xml", "ppt/slides/slide2.xml", "ppt/notesSlides/notesSlide1.xml", "ppt/notesMasters/notesMaster1.xml", "ppt/theme/theme2.xml"]) assert.ok(parts.has(name), name);
+  assert.deepEqual(parts.get("ppt/media/slide1.png"), png);
+  const xml = (name) => parts.get(name).toString("utf8");
+  assert.match(xml("ppt/presentation.xml"), /<p:sldSz cx="12192000" cy="6858000"\/>/);
+  assert.match(xml("ppt/slides/slide1.xml"), /<p:fade\/>/);
+  assert.match(xml("ppt/slides/slide2.xml"), /<p:push dir="l"\/>/);
+  const notes = xml("ppt/notesSlides/notesSlide1.xml");
+  assert.match(notes, /<a:t>Say hi\.<\/a:t>.*<a:t>&lt;b&gt;&amp; bye&lt;\/b&gt;<\/a:t>/);
+  assert.match(xml("docProps/core.xml"), /<dc:title>Q3 &lt;plan&gt; &amp; more<\/dc:title>/);
+  assert.match(xml("[Content_Types].xml"), /notesSlide2\.xml/);
+});

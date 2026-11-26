@@ -18,6 +18,7 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { makePptx } from "./pptx.mjs";
 
 export const DEFAULT_PORT = 4770;
 export const INDEX = "deck.json";
@@ -536,6 +537,7 @@ const TYPES = {
   txt: "text/plain; charset=utf-8",
   svg: "image/svg+xml",
   png: "image/png",
+  pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
   jpg: "image/jpeg",
   jpeg: "image/jpeg",
   gif: "image/gif",
@@ -709,6 +711,21 @@ export async function handle(ctx, req) {
         else waiters.get(key).until = Date.now() + LISTEN_GRACE_MS;
         for (const [k, w] of waiters) if (w.until <= Date.now()) waiters.delete(k);
       }
+    }
+    if (route === "POST /api/export") {
+      // The page's PowerPoint button: makes `exports/<title>.pptx` in the deck's folder and answers with it.
+      const id = req.query.get("id");
+      if (id === null) return bad("id");
+      const d = decks.get(id);
+      const busy = (ctx.exporting ??= new Map());
+      if (!busy.has(d.id)) busy.set(d.id, exportDeck(d, `http://${h("host")}/`, { kind: "pptx" }).finally(() => busy.delete(d.id)));
+      let file;
+      try {
+        [file] = await busy.get(d.id);
+      } catch (e) {
+        return json(500, { code: "Io", detail: String(e?.message ?? e) });
+      }
+      return { status: 200, type: TYPES.pptx, headers: { "x-tome-file": encodeURIComponent(file) }, body: fs.readFileSync(file) };
     }
     if (req.path.startsWith("/api/")) return text(404, "no such call");
     if (req.method !== "GET" && req.method !== "HEAD") return text(405, "GET only");
@@ -886,11 +903,20 @@ export function findChrome() {
   return null;
 }
 
-function chrome(bin, args) {
+/** Runs a headless Chrome to its end (a profile of its own, removed after). */
+async function chrome(bin, args) {
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), "tome-slides-chrome-"));
   try {
-    const r = spawnSync(bin, ["--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check", "--hide-scrollbars", `--user-data-dir=${profile}`, "--virtual-time-budget=20000", ...args], { encoding: "utf8", timeout: 120000 });
-    if (r.status !== 0) throw new Error(`Chrome failed: ${(r.stderr || r.error?.message || "").trim().split("\n").slice(-3).join(" ")}`);
+    const flags = ["--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check", "--hide-scrollbars", `--user-data-dir=${profile}`, "--virtual-time-budget=20000", ...args];
+    const { code, err } = await new Promise((resolve) => {
+      const child = spawn(bin, flags, { stdio: ["ignore", "ignore", "pipe"] });
+      let err = "";
+      child.stderr.on("data", (b) => (err = (err + b).slice(-4000)));
+      const timer = setTimeout(() => child.kill("SIGKILL"), 120000);
+      child.on("error", (e) => (clearTimeout(timer), resolve({ code: -1, err: e.message })));
+      child.on("close", (code) => (clearTimeout(timer), resolve({ code, err })));
+    });
+    if (code !== 0) throw new Error(`Chrome failed: ${err.trim().split("\n").slice(-3).join(" ")}`);
   } finally {
     fs.rmSync(profile, { recursive: true, force: true });
   }
@@ -898,19 +924,40 @@ function chrome(bin, args) {
 
 const safeName = (s) => s.replace(/[\/\\:*?"<>|\0]+/g, "-").replace(/\s+/g, " ").trim().slice(0, 80) || "deck";
 
-/** Makes the PDF (every slide a page) or one PNG per slide: the files made. */
-async function exportDeck(d, state, { kind, out }) {
+const slideUrl = (base, d, s) => `${base}f/${d.id}/${s.file.split("/").map(encodeURIComponent).join("/")}?clip=1`;
+
+/** Makes the PDF (every slide a page), one PNG per slide, or a PowerPoint file of pictures with the notes: the files made. */
+export async function exportDeck(d, base, { kind, out }) {
   const bin = findChrome();
   if (!bin) throw new Error("export needs Chrome (or Chromium, Edge, Brave); set CHROME_PATH to one. Without it: open the deck and use Export PDF in the page");
   const index = readIndex(d.root);
   const slides = index.slides.filter((s) => s.exists);
   if (slides.length === 0) throw new Error("the deck has no slides yet");
   const [w, h] = index.size;
-  if (kind === "pdf") {
-    const file = out ? path.resolve(out) : path.join(d.root, EXPORTS, `${safeName(index.title)}.pdf`);
+  if (kind === "pdf" || kind === "pptx") {
+    const file = out ? path.resolve(out) : path.join(d.root, EXPORTS, `${safeName(index.title)}.${kind}`);
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    chrome(bin, ["--no-pdf-header-footer", `--print-to-pdf=${file}`, `${state.url}print/${d.id}`]);
-    if (!isFile(file)) throw new Error("Chrome made no PDF");
+    if (kind === "pdf") {
+      await chrome(bin, ["--no-pdf-header-footer", `--print-to-pdf=${file}`, `${base}print/${d.id}`]);
+      if (!isFile(file)) throw new Error("Chrome made no PDF");
+      return [file];
+    }
+    // Pictures at twice the slide's size: sharp on a large screen.
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "tome-slides-pptx-"));
+    try {
+      const pictures = [];
+      for (const [i, s] of slides.entries()) {
+        const png = path.join(tmp, `${i + 1}.png`);
+        await chrome(bin, [`--window-size=${w},${h}`, "--force-device-scale-factor=2", `--screenshot=${png}`, slideUrl(base, d, s)]);
+        if (!isFile(png)) throw new Error(`Chrome made no picture of ${s.file}`);
+        pictures.push({ png: fs.readFileSync(png), title: s.title ?? path.basename(s.file, path.extname(s.file)), notes: s.notes ?? "", transition: s.transition ?? index.transition });
+      }
+      const part = `${file}.part`;
+      fs.writeFileSync(part, makePptx({ title: index.title, size: index.size, slides: pictures }));
+      fs.renameSync(part, file);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
     return [file];
   }
   const dir = out ? path.resolve(out) : path.join(d.root, EXPORTS, safeName(index.title));
@@ -918,7 +965,7 @@ async function exportDeck(d, state, { kind, out }) {
   const made = [];
   for (const [i, s] of slides.entries()) {
     const file = path.join(dir, `${String(i + 1).padStart(2, "0")}.png`);
-    chrome(bin, [`--window-size=${w},${h}`, `--screenshot=${file}`, `${state.url}f/${d.id}/${s.file.split("/").map(encodeURIComponent).join("/")}?clip=1`]);
+    await chrome(bin, [`--window-size=${w},${h}`, `--screenshot=${file}`, slideUrl(base, d, s)]);
     made.push(file);
   }
   return made;
@@ -937,7 +984,8 @@ slides.mjs open [FOLDER]           start it if needed and open the deck in FOLDE
            --present N             the address of a presentation that starts at slide N
 slides.mjs list                    the opened decks: [{id, root, title, slides, url, comments}]
 slides.mjs check FOLDER            what is wrong with the deck's files: {problems, issues}; exits 1 while there are any
-slides.mjs export FOLDER --pdf     every slide as a page of one PDF (needs Chrome); --png: one picture per slide; --out PATH
+slides.mjs export FOLDER --pdf     every slide as a page of one PDF (needs Chrome); --pptx: a PowerPoint file, each slide a
+                                   picture with its notes; --png: one picture per slide; --out PATH
 slides.mjs close FOLDER            take it off the list (the files stay)
 slides.mjs stop                    end it
 slides.mjs serve                   run it here, in the foreground
@@ -972,7 +1020,7 @@ async function main(argv) {
       if (!/^\d+$/.test(v) || Number(v) < 1) fail(`${name} is a slide's number: 1 is the first`);
       return Number(v);
     };
-    if (["--all", "--wait", "--resolve", "--reopen", "--pdf", "--png"].includes(a)) flags.add(a.slice(2));
+    if (["--all", "--wait", "--resolve", "--reopen", "--pdf", "--pptx", "--png"].includes(a)) flags.add(a.slice(2));
     else if (a === "--port") {
       const v = value(a);
       if (!/^\d+$/.test(v)) fail("--port is a number");
@@ -1015,10 +1063,11 @@ async function main(argv) {
     }
     if (command === "export") {
       if (words.length === 0) fail("export needs a deck's folder");
-      if (flags.has("pdf") === flags.has("png")) fail("export makes --pdf or --png");
+      const kinds = ["pdf", "pptx", "png"].filter((k) => flags.has(k));
+      if (kinds.length !== 1) fail("export makes one of --pdf, --pptx, --png");
       const d = decks.add(words[0]);
       const state = await ensure(port);
-      return print({ files: await exportDeck(d, state, { kind: flags.has("pdf") ? "pdf" : "png", out }) });
+      return print({ files: await exportDeck(d, state.url, { kind: kinds[0], out }) });
     }
     if (command === "new" || command === "open") {
       let d = null;

@@ -3,10 +3,10 @@ name: tome-slides
 description: >-
   Make and revise a slide deck as plain HTML files, one per slide, opened in a local page in the browser
   where the user goes through the slides with their speaker notes, presents full screen with a speaker
-  view, saves a PDF, and comments on an element or an area of a slide, and you answer in the thread and
+  view, saves a PDF or a PowerPoint file, and comments on an element or an area of a slide, and you answer in the thread and
   edit the files. Use when the user asks for slides, a deck, a presentation, a talk, 幻灯片, 演示文稿, PPT,
   スライド, プレゼン, names tome-slides, or wants to revise a folder that holds deck.json. Not for screens
-  of an app (tome-design), drawing together (tome-board), or a .pptx file the user asks for by name.
+  of an app (tome-design), drawing together (tome-board), or a .pptx whose text must stay editable in PowerPoint.
 ---
 
 # Slides: a deck of plain HTML pages
@@ -14,7 +14,7 @@ description: >-
 A deck is a folder: `deck.json` lists the slides in order, and each slide is one HTML file in the folder. This
 skill's script starts a small page on this machine that shows the slides in a row down the side and the chosen
 one large, its speaker notes under it. The user presents it full screen, opens a speaker view in a second
-window, saves it as a PDF, and comments on a part of a slide. You write the files; an open page shows what you
+window, saves it as a PDF or a PowerPoint file, and comments on a part of a slide. You write the files; an open page shows what you
 write at once, the changed slides outlined in green.
 
 Tell the user what happens on the page, never the mechanism.
@@ -35,9 +35,11 @@ Tell the user what happens on the page, never the mechanism.
 - `check "<folder>"` → `{problems, issues: [{file, problem}]}`: what is wrong in `deck.json` and the slides'
   HTML, read from the files (it does not run them or look at them). Exits 1 while there are problems.
 - `export "<folder>" --pdf` → one PDF, a page per slide at the deck's size, in the folder's `exports/` (`--out
-  <file>`: there instead). `--png`: a picture per slide, `exports/<title>/01.png` … (`--out <dir>`). Both need
-  Chrome, Chromium, Edge or Brave on this machine (`$CHROME_PATH` names one); without one, the page's Export
-  PDF opens the print dialog, where the user picks Save as PDF.
+  <file>`: there instead). `--pptx`: a PowerPoint file, `exports/<title>.pptx`, each slide one picture of it
+  (all its steps shown) with its speaker notes and transition; the text is not editable in PowerPoint.
+  `--png`: a picture per slide, `exports/<title>/01.png` … (`--out <dir>`). All need Chrome, Chromium, Edge
+  or Brave on this machine (`$CHROME_PATH` names one); without one, the page's Export PDF opens the print
+  dialog, where the user picks Save as PDF. The page's Export PPTX button makes the same .pptx in `exports/`.
 - `close "<folder>"` takes it off the list; the files stay. `stop` ends the page's process.
 
 Quote a path that has spaces.
@@ -96,9 +98,9 @@ does not list; `exports/` is left alone).
 3. Write the other slides in order, each with its notes in `deck.json`.
 4. `check "<folder>"` and fix what it names until `problems` is 0. Then tell the user what you made, in a few
    lines, with the folder's path, and that P presents (S in the presentation opens the speaker view). Make the
-   PDF only when asked.
-5. Working on a card (a task note)? Put the folder's path and the `url` in its deliverables (and the PDF, when
-   you made one).
+   PDF or the PowerPoint file only when asked.
+5. Working on a card (a task note)? Put the folder's path and the `url` in its deliverables (and the PDF or
+   .pptx, when you made one).
 
 ## Designing slides
 
@@ -163,7 +165,8 @@ beside the slide.
 - The page shows, presents and comments; it does not edit. There is no retyping text or dragging things on a
   slide: the user asks, you change the files.
 - It listens on this computer only: no link for a phone or another computer.
-- No PowerPoint or Keynote file: the PDF (or the pictures) is what goes to other people.
+- The PowerPoint file is pictures of the slides: it plays and carries the notes, but its text and shapes can not
+  be changed in PowerPoint or Keynote, and steps show all at once. Changes go through the HTML files.
 
 ## Files this skill touches
 

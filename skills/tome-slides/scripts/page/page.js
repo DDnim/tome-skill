@@ -48,6 +48,10 @@ const zh = {
   "Exit": "退出",
   "Speaker view": "演讲者视图",
   "Export PDF": "导出 PDF",
+  "Export PowerPoint": "导出 PPTX",
+  "Exporting…": "正在导出…",
+  "Export failed: {detail}": "导出失败：{detail}",
+  "Saved to {file}": "已保存到 {file}",
   "Copy path": "复制路径",
   "Copied": "已复制",
   "→ or a click: next. ←: back. S: speaker view. C: comment. Esc: exit.": "→ 或点一下：下一步。←：上一步。S：演讲者视图。C：评论。Esc：退出。",
@@ -99,6 +103,10 @@ const ja = {
   "Exit": "終了",
   "Speaker view": "発表者ビュー",
   "Export PDF": "PDF に書き出す",
+  "Export PowerPoint": "PPTX に書き出す",
+  "Exporting…": "書き出し中…",
+  "Export failed: {detail}": "書き出せませんでした: {detail}",
+  "Saved to {file}": "{file} に保存しました",
   "Copy path": "パスをコピー",
   "Copied": "コピーしました",
   "→ or a click: next. ←: back. S: speaker view. C: comment. Esc: exit.": "→ かクリックで次へ。← で戻る。S で発表者ビュー。C でコメント。Esc で終了。",
@@ -237,6 +245,7 @@ async function showDeck(id) {
         <span class="grow"></span>
         <button class="changed" hidden></button>
         <button class="export">${esc(t("Export PDF"))}</button>
+        <button class="export-pptx" title="${esc(t("Export PowerPoint"))}">${esc(t("Export PowerPoint"))}</button>
         <button class="present-button">${esc(t("Present"))}<kbd>P</kbd></button>
         <button class="pick">${esc(t("Comment"))}<kbd>C</kbd></button>
         <button class="toggle"></button>
@@ -904,6 +913,32 @@ async function showDeck(id) {
   pickButton.addEventListener("click", () => setPicking(!state.picking));
   page.querySelector(".present-button").addEventListener("click", () => openPresent(state.current));
   page.querySelector(".export").addEventListener("click", () => window.open(`/print/${id}?auto=1`, "_blank"));
+  page.querySelector(".export-pptx").addEventListener("click", async (e) => {
+    // The server makes the file in the deck's exports/ (a picture of each slide, with its notes); the browser saves a copy too.
+    const b = e.currentTarget;
+    if (b.disabled) return;
+    b.disabled = true;
+    b.textContent = t("Exporting…");
+    try {
+      const res = await fetch("/api/export?" + q({ id }), { method: "POST", headers: WRITE });
+      if (!res.ok) throw new Error((await res.json().catch(() => null))?.detail || `HTTP ${res.status}`);
+      const file = decodeURIComponent(res.headers.get("x-tome-file") ?? "");
+      const url = URL.createObjectURL(await res.blob());
+      const a = Object.assign(document.createElement("a"), { href: url, download: file.split("/").pop() || "deck.pptx" });
+      document.body.append(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      b.title = t("Saved to {file}", { file });
+    } catch (err) {
+      b.title = t("Export failed: {detail}", { detail: err.message });
+      b.dataset.failed = "1";
+      setTimeout(() => delete b.dataset.failed, 4000);
+    } finally {
+      b.disabled = false;
+      b.textContent = t("Export PowerPoint");
+    }
+  });
   page.querySelector(".path").addEventListener("click", async (e) => {
     const b = e.currentTarget;
     try {

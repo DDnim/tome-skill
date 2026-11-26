@@ -9,7 +9,7 @@ Agent Tome 的 skill。每个 skill 是 `skills/<名字>/`：`SKILL.md` 告诉 a
 | `tome-board` | 画板（Excalidraw）：在浏览器里和 agent 一起画，文件存在 Obsidian 卡片库里 |
 | `tome-md` | Markdown：在浏览器里看渲染好的文档，选中一段评论或提问，agent 在评论下面回答、改文件 |
 | `tome-design` | 设计稿：画板写成普通的 HTML，在浏览器里的画布上并排看；点一个元素或框一块区域评论，agent 改文件、在评论下面回答 |
-| `tome-slides` | 幻灯片：一页一个普通的 HTML 文件，在浏览器里看幻灯片和演讲备注；全屏演示、演讲者视图、存成 PDF；点一个元素或框一块区域评论，agent 改文件、在评论下面回答 |
+| `tome-slides` | 幻灯片：一页一个普通的 HTML 文件，在浏览器里看幻灯片和演讲备注；全屏演示、演讲者视图、存成 PDF 或 PowerPoint；点一个元素或框一块区域评论，agent 改文件、在评论下面回答 |
 
 ## 安装
 
@@ -115,7 +115,7 @@ node skills/tome-slides/scripts/slides.mjs new "季度回顾"          # 建 dec
 node skills/tome-slides/scripts/slides.mjs open decks/季度回顾     # --slide 3：第 3 页；--present 1：从那一页开始演示
 node skills/tome-slides/scripts/slides.mjs open                    # 打开过的幻灯片的列表
 node skills/tome-slides/scripts/slides.mjs check decks/季度回顾    # deck.json 和每页 HTML 里的问题；有问题时退出码 1
-node skills/tome-slides/scripts/slides.mjs export decks/季度回顾 --pdf   # 在文件夹的 exports/ 里出一个 PDF；--png：每页一张图
+node skills/tome-slides/scripts/slides.mjs export decks/季度回顾 --pdf   # 在文件夹的 exports/ 里出一个 PDF；--pptx：PowerPoint；--png：每页一张图
 node skills/tome-slides/scripts/slides.mjs list
 node skills/tome-slides/scripts/slides.mjs close decks/季度回顾
 node skills/tome-slides/scripts/slides.mjs stop
@@ -126,11 +126,12 @@ node skills/tome-slides/scripts/slides.mjs comment-reply <id> "…"  # 回复（
 - **看幻灯片**：左边一列是所有页，中间大的是选中的那页，下面是它的演讲备注。← →（或 ↑ ↓）翻页。
 - **演示**（「演示」或 P；Shift+P 从第一页）：全屏，一次一页。→、空格或点一下往下，← 往回，Home、End 到头尾，B 黑屏，Esc 结束。写了 `data-step="1"`、`"2"`… 的元素按一次出一个。换页是淡入、从侧面滑进来或直接换（`deck.json` 的 `transition`，整套或单页）。S 在另一个窗口开演讲者视图：当前页、下一步、大字的备注、计时和时钟；在那边按键也能翻页。演示时也能按 C 评论，评论面板在幻灯片旁边。
 - **PDF**：页面上的「导出 PDF」把每页排成和幻灯片一样大的纸，打开打印对话框（选「存为 PDF」）。`export --pdf` 用无界面的 Chrome 直接出文件。
+- **PowerPoint**：页面上的「导出 PPTX」（或 `export --pptx`）出 `exports/<标题>.pptx`：每页是一张图，带演讲备注和转场。在 PowerPoint、Keynote 里放出来和浏览器里一样，但文字不能在那里改。
 - **文件由 agent 写**，开着的页面跟着变：改了的页马上重新载入、描绿框。页面本身不改任何东西。
 - **评论**：按「评论」（或 C），再点幻灯片里的一个元素或拖出一块区域，写下要说的。「添加注释」先存着；agent 在跑 `comments --wait` 时「发给 Agent」连同之前的注释一起交给它。agent 拿到的是哪一页（第几页）、页里的位置（px）、点的元素或区域里的元素。面板最上面的框是对整套幻灯片说的。
 - **每页在沙箱里跑**，和 tome-design 的画板一样：只能加载自己文件夹里的文件和 Google Fonts。
 - **一台电脑一个进程。** 只听 127.0.0.1（4770，被占了就往上找）。自己的记录都在 `~/.tome-slides/`（`$TOME_SLIDES_HOME` 可以改）：打开过的幻灯片、在跑的进程（`servers/main.json`，`kind: "slides"`）、评论。
-- **不是 claude-slides 的格式**（`project/deck.json`，只能用一部分行内样式）：tome-slides 的每一页是普通的 HTML，CSS 随便写，单独也能打开。不出 PowerPoint，给别人的是 PDF。
+- **不是 claude-slides 的格式**（`project/deck.json`，只能用一部分行内样式）：tome-slides 的每一页是普通的 HTML，CSS 随便写，单独也能打开。出的 PowerPoint 是图片，文字不能编辑。
 - **测试**：`cd apps/slides && npm test`。
 
 ## 许可
