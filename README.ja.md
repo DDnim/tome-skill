@@ -9,6 +9,7 @@
 | `tome-board` | ボード（Excalidraw）：ブラウザーの同じボードに人とエージェントが描く。ファイルは Obsidian の vault に保存される |
 | `tome-md` | Markdown：ブラウザーで表示したファイルの一部を選んでコメントや質問を書くと、エージェントがスレッドで答え、ファイルを直す |
 | `tome-design` | デザイン：普通の HTML で書いたボードを、ブラウザーのキャンバスに並べて見る。要素をクリックするか範囲を囲んでコメントすると、エージェントがファイルを直してスレッドで答える |
+| `tome-slides` | スライド：1 枚 1 つの普通の HTML ファイル。ブラウザーでスライドとスピーカーノートを見て、全画面でプレゼン、発表者ビュー、PDF 保存。要素をクリックするか範囲を囲んでコメントすると、エージェントがファイルを直してスレッドで答える |
 
 ## インストール
 
@@ -18,9 +19,10 @@ skill のフォルダを、エージェントが skill を読む場所にリン�
 ln -s "$PWD/skills/tome-board" ~/.claude/skills/tome-board
 ln -s "$PWD/skills/tome-md" ~/.claude/skills/tome-md
 ln -s "$PWD/skills/tome-design" ~/.claude/skills/tome-design
+ln -s "$PWD/skills/tome-slides" ~/.claude/skills/tome-slides
 ```
 
-`tome-md` と `tome-design` はビルド不要で、リンクすればそのまま使えます。`tome-board` のページは最初に 1 回ビルドします（Node 20 以上）。
+`tome-md`・`tome-design`・`tome-slides` はビルド不要で、リンクすればそのまま使えます。`tome-board` のページは最初に 1 回ビルドします（Node 20 以上）。
 
 ```sh
 cd apps/board && npm ci --ignore-scripts && node build.mjs
@@ -103,6 +105,33 @@ node skills/tome-design/scripts/design.mjs comment-reply <id> "…"  # 返信（
 - **コンピューター 1 台に 1 プロセス。** 127.0.0.1 だけで待ち受け（4760、使用中なら上の空きポート）、このコンピューター宛てのリクエストにだけ応えます。自分の記録は `~/.tome-design/`（`$TOME_DESIGN_HOME` で変更）：開いたデザイン、動いているプロセス（`servers/main.json`、`kind: "design"`）、コメント。
 - **claude-design の形式ではありません**：その `.dc.html` はその skill のランタイムが必要です。tome-design のボードは普通の HTML で、単独でも開けます。
 - **テスト**：`cd apps/design && npm test`。
+
+## tome-slides：スライド
+
+`scripts/slides.mjs` がコマンドとローカルサーバーを兼ねます（Node 20 以上、依存なし。`export` だけ Chrome を使います）。`scripts/page/` がページで、普通の JavaScript、ビルド不要です。スライドは 1 つのフォルダーで、`deck.json` にスライドの順番とスピーカーノートを書き、スライドはそれぞれフォルダー内の普通の HTML ファイルです。
+
+```sh
+node skills/tome-slides/scripts/slides.mjs new "四半期の振り返り"        # decks/四半期の振り返り/ と空の deck.json を作って開く。{"url": "http://127.0.0.1:4770/d/<id>", …} を出力
+node skills/tome-slides/scripts/slides.mjs open decks/四半期の振り返り   # --slide 3：3 枚目。--present 1：そこから始まるプレゼン
+node skills/tome-slides/scripts/slides.mjs open                         # 開いたスライドの一覧
+node skills/tome-slides/scripts/slides.mjs check decks/四半期の振り返り  # deck.json と各スライドの HTML の問題。問題があるうちは終了コード 1
+node skills/tome-slides/scripts/slides.mjs export decks/四半期の振り返り --pdf   # フォルダーの exports/ に PDF を 1 つ。--png：1 枚ずつ画像
+node skills/tome-slides/scripts/slides.mjs list
+node skills/tome-slides/scripts/slides.mjs close decks/四半期の振り返り
+node skills/tome-slides/scripts/slides.mjs stop
+node skills/tome-slides/scripts/slides.mjs comments --wait         # コメントがエージェントに送られるまで待ち、そのコメントを出力して終わる
+node skills/tome-slides/scripts/slides.mjs comment-reply <id> "…"  # 返信（--resolve で解決も）。comment-resolve <id> は解決だけ
+```
+
+- **スライドを見る**：左に全スライドの列、中央に選んだ 1 枚を大きく、その下にスピーカーノート。← →（か ↑ ↓）で送ります。
+- **プレゼン**（「プレゼン」か P。Shift+P で 1 枚目から）：全画面で 1 枚ずつ。→・スペース・クリックで進み、← で戻る、Home・End で最初と最後、B で黒画面、Esc で終了。`data-step="1"`・`"2"`… を付けた要素は 1 回押すごとに 1 つずつ出ます。切り替えはフェード・横からスライド・なしの 3 種（`deck.json` の `transition`、全体か 1 枚ごと）。S で別ウィンドウに発表者ビュー：今のスライド、次、大きな文字のノート、タイマーと時計。そちらのキーでも進められます。プレゼン中も C でコメントでき、パネルはスライドの横に出ます。
+- **PDF**：ページの「PDF に書き出す」で全スライドをスライドと同じ大きさのページに並べ、印刷ダイアログを開きます（「PDF として保存」）。`export --pdf` はヘッドレスの Chrome で直接ファイルを作ります。
+- **ファイルはエージェントが書き**、開いているページが追従します。変わったスライドはすぐ読み直され、緑の枠が付きます。ページ自体は何も書き換えません。
+- **コメント**：「コメント」（か C）を押し、スライドの要素をクリックするか範囲をドラッグして書きます。「メモを追加」は保存だけ。エージェントが `comments --wait` を実行している間の「Agent に送る」は、それまでのメモと一緒に渡します。エージェントには、スライド（何枚目か）、スライド内の位置（px）、クリックした要素か範囲内の要素が届きます。パネル上部の欄はスライド全体へのコメントです。
+- **スライドはサンドボックスで動きます**。tome-design のボードと同じく、読み込めるのは自分のフォルダーのファイルと Google Fonts だけです。
+- **コンピューター 1 台に 1 プロセス。** 127.0.0.1 だけで待ち受け（4770、使用中なら上の空きポート）。自分の記録は `~/.tome-slides/`（`$TOME_SLIDES_HOME` で変更）：開いたスライド、動いているプロセス（`servers/main.json`、`kind: "slides"`）、コメント。
+- **claude-slides の形式ではありません**（`project/deck.json`、使えるインラインスタイルが限られる）：tome-slides のスライドは普通の HTML で CSS も自由、単独でも開けます。PowerPoint には書き出しません。人に渡すのは PDF です。
+- **テスト**：`cd apps/slides && npm test`。
 
 ## ライセンス
 

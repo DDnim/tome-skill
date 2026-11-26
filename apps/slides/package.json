@@ -1,0 +1,10 @@
+{
+  "name": "tome-slides-tests",
+  "private": true,
+  "description": "Tests of the tome-slides skill (skills/tome-slides/scripts). The skill itself needs no build and no packages.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/"
+  }
+}

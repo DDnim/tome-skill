@@ -9,6 +9,7 @@ Agent Tome 的 skill。每个 skill 是 `skills/<名字>/`：`SKILL.md` 告诉 a
 | `tome-board` | 画板（Excalidraw）：在浏览器里和 agent 一起画，文件存在 Obsidian 卡片库里 |
 | `tome-md` | Markdown：在浏览器里看渲染好的文档，选中一段评论或提问，agent 在评论下面回答、改文件 |
 | `tome-design` | 设计稿：画板写成普通的 HTML，在浏览器里的画布上并排看；点一个元素或框一块区域评论，agent 改文件、在评论下面回答 |
+| `tome-slides` | 幻灯片：一页一个普通的 HTML 文件，在浏览器里看幻灯片和演讲备注；全屏演示、演讲者视图、存成 PDF；点一个元素或框一块区域评论，agent 改文件、在评论下面回答 |
 
 ## 安装
 
@@ -18,9 +19,10 @@ Agent Tome 的 skill。每个 skill 是 `skills/<名字>/`：`SKILL.md` 告诉 a
 ln -s "$PWD/skills/tome-board" ~/.claude/skills/tome-board
 ln -s "$PWD/skills/tome-md" ~/.claude/skills/tome-md
 ln -s "$PWD/skills/tome-design" ~/.claude/skills/tome-design
+ln -s "$PWD/skills/tome-slides" ~/.claude/skills/tome-slides
 ```
 
-`tome-md` 和 `tome-design` 不用构建，链接上就能用。`tome-board` 的页面要先构建一次（Node 20+）：
+`tome-md`、`tome-design` 和 `tome-slides` 不用构建，链接上就能用。`tome-board` 的页面要先构建一次（Node 20+）：
 
 ```sh
 cd apps/board && npm ci --ignore-scripts && node build.mjs
@@ -103,6 +105,33 @@ node skills/tome-design/scripts/design.mjs comment-reply <id> "…"  # 回复（
 - **一台电脑一个进程。** 只听 127.0.0.1（4760，被占了就往上找），只回应发给这台电脑的请求。自己的记录都在 `~/.tome-design/`（`$TOME_DESIGN_HOME` 可以改）：打开过的设计稿、在跑的进程（`servers/main.json`，`kind: "design"`）、评论。
 - **不是 claude-design 的格式**：它的 `.dc.html` 要那个 skill 的运行时。tome-design 的画板是普通的 HTML，单独也能打开。
 - **测试**：`cd apps/design && npm test`。
+
+## tome-slides：幻灯片
+
+`scripts/slides.mjs` 既是命令也是本机的服务（Node 20+，没有依赖；只有 `export` 要用 Chrome）。`scripts/page/` 是页面：普通的 JavaScript，不用构建。一套幻灯片是一个文件夹：`deck.json` 按顺序列出每一页和它的演讲备注，每一页是文件夹里的一个普通 HTML 文件。
+
+```sh
+node skills/tome-slides/scripts/slides.mjs new "季度回顾"          # 建 decks/季度回顾/ 和空的 deck.json，打开它；打印 {"url": "http://127.0.0.1:4770/d/<id>", …}
+node skills/tome-slides/scripts/slides.mjs open decks/季度回顾     # --slide 3：第 3 页；--present 1：从那一页开始演示
+node skills/tome-slides/scripts/slides.mjs open                    # 打开过的幻灯片的列表
+node skills/tome-slides/scripts/slides.mjs check decks/季度回顾    # deck.json 和每页 HTML 里的问题；有问题时退出码 1
+node skills/tome-slides/scripts/slides.mjs export decks/季度回顾 --pdf   # 在文件夹的 exports/ 里出一个 PDF；--png：每页一张图
+node skills/tome-slides/scripts/slides.mjs list
+node skills/tome-slides/scripts/slides.mjs close decks/季度回顾
+node skills/tome-slides/scripts/slides.mjs stop
+node skills/tome-slides/scripts/slides.mjs comments --wait         # 等你把评论发给 agent，打印那条评论后结束
+node skills/tome-slides/scripts/slides.mjs comment-reply <id> "…"  # 回复（--resolve 同时解决）；comment-resolve <id> 只解决
+```
+
+- **看幻灯片**：左边一列是所有页，中间大的是选中的那页，下面是它的演讲备注。← →（或 ↑ ↓）翻页。
+- **演示**（「演示」或 P；Shift+P 从第一页）：全屏，一次一页。→、空格或点一下往下，← 往回，Home、End 到头尾，B 黑屏，Esc 结束。写了 `data-step="1"`、`"2"`… 的元素按一次出一个。换页是淡入、从侧面滑进来或直接换（`deck.json` 的 `transition`，整套或单页）。S 在另一个窗口开演讲者视图：当前页、下一步、大字的备注、计时和时钟；在那边按键也能翻页。演示时也能按 C 评论，评论面板在幻灯片旁边。
+- **PDF**：页面上的「导出 PDF」把每页排成和幻灯片一样大的纸，打开打印对话框（选「存为 PDF」）。`export --pdf` 用无界面的 Chrome 直接出文件。
+- **文件由 agent 写**，开着的页面跟着变：改了的页马上重新载入、描绿框。页面本身不改任何东西。
+- **评论**：按「评论」（或 C），再点幻灯片里的一个元素或拖出一块区域，写下要说的。「添加注释」先存着；agent 在跑 `comments --wait` 时「发给 Agent」连同之前的注释一起交给它。agent 拿到的是哪一页（第几页）、页里的位置（px）、点的元素或区域里的元素。面板最上面的框是对整套幻灯片说的。
+- **每页在沙箱里跑**，和 tome-design 的画板一样：只能加载自己文件夹里的文件和 Google Fonts。
+- **一台电脑一个进程。** 只听 127.0.0.1（4770，被占了就往上找）。自己的记录都在 `~/.tome-slides/`（`$TOME_SLIDES_HOME` 可以改）：打开过的幻灯片、在跑的进程（`servers/main.json`，`kind: "slides"`）、评论。
+- **不是 claude-slides 的格式**（`project/deck.json`，只能用一部分行内样式）：tome-slides 的每一页是普通的 HTML，CSS 随便写，单独也能打开。不出 PowerPoint，给别人的是 PDF。
+- **测试**：`cd apps/slides && npm test`。
 
 ## 许可
 

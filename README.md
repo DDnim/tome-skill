@@ -9,6 +9,7 @@ Skills for coding agents, made for Agent Tome and usable without it. Each skill 
 | `tome-board` | A drawing board (Excalidraw): you and the agent draw on the same board in the browser, and the file is kept in your Obsidian vault |
 | `tome-md` | Markdown: read a file rendered in the browser, select a passage to comment on or ask about, and the agent answers in the thread and edits the file |
 | `tome-design` | A design: artboards written as plain HTML, side by side on a canvas in the browser; comment on an element or an area, and the agent changes the files and replies |
+| `tome-slides` | A slide deck: one plain HTML file per slide, the slides with their speaker notes in the browser; present full screen with a speaker view, save a PDF, comment on an element or an area, and the agent changes the files and replies |
 
 ## Install
 
@@ -18,9 +19,10 @@ Link the skill's folder into the place your agent reads skills from (for Claude 
 ln -s "$PWD/skills/tome-board" ~/.claude/skills/tome-board
 ln -s "$PWD/skills/tome-md" ~/.claude/skills/tome-md
 ln -s "$PWD/skills/tome-design" ~/.claude/skills/tome-design
+ln -s "$PWD/skills/tome-slides" ~/.claude/skills/tome-slides
 ```
 
-`tome-md` and `tome-design` need no build: once linked, they work. The page of `tome-board` is built once (Node 20+):
+`tome-md`, `tome-design` and `tome-slides` need no build: once linked, they work. The page of `tome-board` is built once (Node 20+):
 
 ```sh
 cd apps/board && npm ci --ignore-scripts && node build.mjs
@@ -103,6 +105,33 @@ node skills/tome-design/scripts/design.mjs comment-reply <id> "…"  # replies (
 - **One process per computer.** It listens on 127.0.0.1 only (4760, or the next free port up) and answers only requests addressed to this computer. Its own notes are in `~/.tome-design/` (`$TOME_DESIGN_HOME` moves it): the opened designs, the running process (`servers/main.json`, `kind: "design"`), the comments.
 - **Not the claude-design format**: its `.dc.html` files need that skill's runtime. A tome-design board is an ordinary HTML file you can also open on its own.
 - **Tests**: `cd apps/design && npm test`.
+
+## tome-slides: a slide deck
+
+`scripts/slides.mjs` is both the command and the local server (Node 20+, no dependencies; Chrome only for `export`). `scripts/page/` is the page: plain JavaScript, no build. A deck is a folder: `deck.json` lists the slides in order with their speaker notes, and each slide is a plain HTML file in the folder.
+
+```sh
+node skills/tome-slides/scripts/slides.mjs new "Q3 review"          # makes decks/Q3 review/ with an empty deck.json, opens it; prints {"url": "http://127.0.0.1:4770/d/<id>", …}
+node skills/tome-slides/scripts/slides.mjs open "decks/Q3 review"   # --slide 3: that slide; --present 1: a presentation from there
+node skills/tome-slides/scripts/slides.mjs open                     # the page that lists the opened decks
+node skills/tome-slides/scripts/slides.mjs check "decks/Q3 review"  # what is wrong in deck.json and the slides' HTML; exits 1 while anything is
+node skills/tome-slides/scripts/slides.mjs export "decks/Q3 review" --pdf   # one PDF in the folder's exports/; --png: a picture per slide
+node skills/tome-slides/scripts/slides.mjs list
+node skills/tome-slides/scripts/slides.mjs close "decks/Q3 review"
+node skills/tome-slides/scripts/slides.mjs stop
+node skills/tome-slides/scripts/slides.mjs comments --wait          # waits until you send a comment to the agent, prints that comment and ends
+node skills/tome-slides/scripts/slides.mjs comment-reply <id> "…"   # replies (--resolve also closes it); comment-resolve <id> only closes it
+```
+
+- **The deck**: the slides in a row down the side, the chosen one large, its speaker notes under it. ← → (or ↑ ↓) go through them.
+- **Presenting** (Present, or P; Shift+P from the first slide): full screen, one slide at a time. → , Space or a click goes on, ← back, Home and End to the ends, B blacks the screen, Esc ends. Elements with `data-step="1"`, `"2"`… appear one press at a time. A slide comes in with a fade, a slide from the side, or at once (`transition` in `deck.json`, for the deck or one slide). S opens the speaker view in another window: the slide now, what comes next, the notes in large type, a timer and the clock; its keys move the presentation too. C comments there, with the panel beside the slide.
+- **PDF**: Export PDF in the page lays every slide out as a page of the deck's size and opens the print dialog (Save as PDF). `export --pdf` makes the file without asking, through a headless Chrome.
+- **The agent writes the files** and the open page follows: a changed slide reloads at once and is outlined in green. The page itself edits nothing.
+- **Comments**: press Comment (or C), then click an element of the slide or drag over an area of it, and write. "Add note" keeps it; "Send to Agent" (while an agent runs `comments --wait`) hands it over with the notes before it. The agent gets the slide and its number, the place in its px, and the element or the elements in the area. The box at the top of the panel is about the whole deck.
+- **Slides run in a sandbox**, as tome-design's boards do: they load files from their own folder and Google Fonts only.
+- **One process per computer.** It listens on 127.0.0.1 only (4770, or the next free port up). Its own notes are in `~/.tome-slides/` (`$TOME_SLIDES_HOME` moves it): the opened decks, the running process (`servers/main.json`, `kind: "slides"`), the comments.
+- **Not the claude-slides format** (`project/deck.json` with a closed subset of inline styles): a tome-slides slide is an ordinary HTML page, any CSS, and opens on its own. There is no PowerPoint export; the PDF is what goes out.
+- **Tests**: `cd apps/slides && npm test`.
 
 ## License
 
