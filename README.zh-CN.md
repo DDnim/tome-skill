@@ -8,6 +8,7 @@ Agent Tome 的 skill。每个 skill 是 `skills/<名字>/`：`SKILL.md` 告诉 a
 | --- | --- |
 | `tome-board` | 画板（Excalidraw）：在浏览器里和 agent 一起画，文件存在 Obsidian 卡片库里 |
 | `tome-md` | Markdown：在浏览器里看渲染好的文档，选中一段评论或提问，agent 在评论下面回答、改文件 |
+| `tome-design` | 设计稿：画板写成普通的 HTML，在浏览器里的画布上并排看；点一个元素或框一块区域评论，agent 改文件、在评论下面回答 |
 
 ## 安装
 
@@ -16,9 +17,10 @@ Agent Tome 的 skill。每个 skill 是 `skills/<名字>/`：`SKILL.md` 告诉 a
 ```sh
 ln -s "$PWD/skills/tome-board" ~/.claude/skills/tome-board
 ln -s "$PWD/skills/tome-md" ~/.claude/skills/tome-md
+ln -s "$PWD/skills/tome-design" ~/.claude/skills/tome-design
 ```
 
-`tome-md` 不用构建，链接上就能用。`tome-board` 的页面要先构建一次（Node 20+）：
+`tome-md` 和 `tome-design` 不用构建，链接上就能用。`tome-board` 的页面要先构建一次（Node 20+）：
 
 ```sh
 cd apps/board && npm ci --ignore-scripts && node build.mjs
@@ -76,6 +78,30 @@ node skills/tome-md/scripts/md.mjs comment-reply <id> "…"  # 回复（--resolv
 - 一台机器一个进程。只听 127.0.0.1（默认 4750，被占就往上找），和画板一样只接受发给这台机器的请求。
 - 自己的记录都在 `~/.tome-md/`（`$TOME_MD_HOME` 可以换地方）：打开过的文件、在跑的进程（`servers/main.json`，`kind: "md"`）、评论。
 - 测试：`cd apps/md && npm test`。
+
+## tome-design：画布上的设计稿
+
+`scripts/design.mjs` 既是命令也是本机的服务（Node 20+，没有依赖）。`scripts/page/` 是页面：普通的 JavaScript，不用构建。一个设计稿是一个文件夹：`design.json` 写画板在画布上的位置，每张画板是文件夹里的一个普通 HTML 文件。
+
+```sh
+node skills/tome-design/scripts/design.mjs new "登录流程"          # 建 designs/登录流程/ 和空的 design.json，打开它；打印 {"url": "http://127.0.0.1:4760/d/<id>", …}
+node skills/tome-design/scripts/design.mjs open designs/登录流程   # --board Home.html：单独看那一张
+node skills/tome-design/scripts/design.mjs open                    # 打开过的设计稿的列表
+node skills/tome-design/scripts/design.mjs check designs/登录流程  # design.json 和画板 HTML 里的问题；有问题时退出码 1
+node skills/tome-design/scripts/design.mjs list
+node skills/tome-design/scripts/design.mjs close designs/登录流程
+node skills/tome-design/scripts/design.mjs stop
+node skills/tome-design/scripts/design.mjs comments --wait         # 等你把评论发给 agent，打印那条评论后结束
+node skills/tome-design/scripts/design.mjs comment-reply <id> "…"  # 回复（--resolve 同时解决）；comment-resolve <id> 只解决
+```
+
+- **画布**：每张画板按自己的尺寸摆着，上面是名字。拖动或滚动移动，双指捏合或 ⌘＋滚动缩放，F 看全部，0 回到 100%。双击一张单独看：完整的长度，链接和脚本都能用（‹ › 或 ← → 换一张，Esc 回去）。
+- **文件由 agent 写**，开着的页面跟着变：改了的画板马上重新载入、描绿框（右上「改了 N 张」点掉）。页面本身不改任何东西。
+- **评论**：按「评论」（或 C），再点画板里的一个元素或拖出一块区域，写下要说的。「添加注释」先存着；agent 在跑 `comments --wait` 时「发给 Agent」连同之前的注释一起交给它。agent 拿到的是画板、画板里的位置（px）、点的元素（CSS 路径、文字、开头一段标记）或区域里的元素。面板最上面的框是对整个设计稿说的。
+- **画板在沙箱里跑**：每张是另一个源，碰不到页面、服务的接口和网络。只能加载自己文件夹里的文件和 Google Fonts。
+- **一台电脑一个进程。** 只听 127.0.0.1（4760，被占了就往上找），只回应发给这台电脑的请求。自己的记录都在 `~/.tome-design/`（`$TOME_DESIGN_HOME` 可以改）：打开过的设计稿、在跑的进程（`servers/main.json`，`kind: "design"`）、评论。
+- **不是 claude-design 的格式**：它的 `.dc.html` 要那个 skill 的运行时。tome-design 的画板是普通的 HTML，单独也能打开。
+- **测试**：`cd apps/design && npm test`。
 
 ## 许可
 

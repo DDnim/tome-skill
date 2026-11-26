@@ -8,6 +8,7 @@
 | --- | --- |
 | `tome-board` | ボード（Excalidraw）：ブラウザーの同じボードに人とエージェントが描く。ファイルは Obsidian の vault に保存される |
 | `tome-md` | Markdown：ブラウザーで表示したファイルの一部を選んでコメントや質問を書くと、エージェントがスレッドで答え、ファイルを直す |
+| `tome-design` | デザイン：普通の HTML で書いたボードを、ブラウザーのキャンバスに並べて見る。要素をクリックするか範囲を囲んでコメントすると、エージェントがファイルを直してスレッドで答える |
 
 ## インストール
 
@@ -16,9 +17,10 @@ skill のフォルダを、エージェントが skill を読む場所にリン�
 ```sh
 ln -s "$PWD/skills/tome-board" ~/.claude/skills/tome-board
 ln -s "$PWD/skills/tome-md" ~/.claude/skills/tome-md
+ln -s "$PWD/skills/tome-design" ~/.claude/skills/tome-design
 ```
 
-`tome-md` はビルド不要で、リンクすればそのまま使えます。`tome-board` のページは最初に 1 回ビルドします（Node 20 以上）。
+`tome-md` と `tome-design` はビルド不要で、リンクすればそのまま使えます。`tome-board` のページは最初に 1 回ビルドします（Node 20 以上）。
 
 ```sh
 cd apps/board && npm ci --ignore-scripts && node build.mjs
@@ -76,6 +78,30 @@ node skills/tome-md/scripts/md.mjs comment-reply <id> "…"  # 返信（--resolv
 - **コンピューターごとに 1 プロセス**です。127.0.0.1 だけで待ち受け（4750、使用中なら空いている次のポート）、ボードと同じく、このコンピューター宛てのリクエストにだけ応えます。
 - **自分の記録**はすべて `~/.tome-md/` にあります（`$TOME_MD_HOME` で場所を変えられます）：開いたファイル、動いているプロセス（`servers/main.json`、`kind: "md"`）、コメント。
 - **テスト**：`cd apps/md && npm test`。
+
+## tome-design：キャンバスのデザイン
+
+`scripts/design.mjs` がコマンドとローカルサーバーを兼ねます（Node 20 以上、依存なし）。`scripts/page/` がページで、普通の JavaScript、ビルド不要です。デザインは 1 つのフォルダーで、`design.json` にボードのキャンバス上の位置を書き、ボードはそれぞれフォルダー内の普通の HTML ファイルです。
+
+```sh
+node skills/tome-design/scripts/design.mjs new "ログインの流れ"       # designs/ログインの流れ/ と空の design.json を作って開く。{"url": "http://127.0.0.1:4760/d/<id>", …} を出力
+node skills/tome-design/scripts/design.mjs open designs/ログインの流れ   # --board Home.html：そのボードだけ表示
+node skills/tome-design/scripts/design.mjs open                       # 開いたデザインの一覧
+node skills/tome-design/scripts/design.mjs check designs/ログインの流れ  # design.json とボードの HTML の問題。問題があるうちは終了コード 1
+node skills/tome-design/scripts/design.mjs list
+node skills/tome-design/scripts/design.mjs close designs/ログインの流れ
+node skills/tome-design/scripts/design.mjs stop
+node skills/tome-design/scripts/design.mjs comments --wait         # コメントがエージェントに送られるまで待ち、そのコメントを出力して終わる
+node skills/tome-design/scripts/design.mjs comment-reply <id> "…"  # 返信（--resolve で解決も）。comment-resolve <id> は解決だけ
+```
+
+- **キャンバス**：各ボードがそれぞれの大きさで並び、上に名前が付きます。ドラッグかスクロールで移動、ピンチか ⌘＋スクロールで拡大縮小、F で全体、0 で 100%。ボードをダブルクリックすると単独で表示し、全長が見え、リンクとスクリプトも動きます（‹ › か ← → で前後、Esc で戻る）。
+- **ファイルはエージェントが書き**、開いているページが追従します。変わったボードはすぐ読み直され、緑の枠が付きます（右上の「N 枚変更」で消す）。ページ自体は何も書き換えません。
+- **コメント**：「コメント」（か C）を押し、ボードの要素をクリックするか範囲をドラッグして書きます。「メモを追加」は保存だけ。エージェントが `comments --wait` を実行している間の「Agent に送る」は、それまでのメモと一緒に渡します。エージェントには、ボード、ボード内の位置（px）、クリックした要素（CSS パス、テキスト、マークアップの冒頭）か範囲内の要素が届きます。パネル上部の欄はデザイン全体へのコメントです。
+- **ボードはサンドボックスで動きます**：それぞれ別のオリジンで、ページにもサーバーの呼び出しにもネットワークにも届きません。読み込めるのは自分のフォルダーのファイルと Google Fonts だけです。
+- **コンピューター 1 台に 1 プロセス。** 127.0.0.1 だけで待ち受け（4760、使用中なら上の空きポート）、このコンピューター宛てのリクエストにだけ応えます。自分の記録は `~/.tome-design/`（`$TOME_DESIGN_HOME` で変更）：開いたデザイン、動いているプロセス（`servers/main.json`、`kind: "design"`）、コメント。
+- **claude-design の形式ではありません**：その `.dc.html` はその skill のランタイムが必要です。tome-design のボードは普通の HTML で、単独でも開けます。
+- **テスト**：`cd apps/design && npm test`。
 
 ## ライセンス
 

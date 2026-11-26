@@ -8,6 +8,7 @@ Skills for coding agents, made for Agent Tome and usable without it. Each skill 
 | --- | --- |
 | `tome-board` | A drawing board (Excalidraw): you and the agent draw on the same board in the browser, and the file is kept in your Obsidian vault |
 | `tome-md` | Markdown: read a file rendered in the browser, select a passage to comment on or ask about, and the agent answers in the thread and edits the file |
+| `tome-design` | A design: artboards written as plain HTML, side by side on a canvas in the browser; comment on an element or an area, and the agent changes the files and replies |
 
 ## Install
 
@@ -16,9 +17,10 @@ Link the skill's folder into the place your agent reads skills from (for Claude 
 ```sh
 ln -s "$PWD/skills/tome-board" ~/.claude/skills/tome-board
 ln -s "$PWD/skills/tome-md" ~/.claude/skills/tome-md
+ln -s "$PWD/skills/tome-design" ~/.claude/skills/tome-design
 ```
 
-`tome-md` needs no build: once linked, it works. The page of `tome-board` is built once (Node 20+):
+`tome-md` and `tome-design` need no build: once linked, they work. The page of `tome-board` is built once (Node 20+):
 
 ```sh
 cd apps/board && npm ci --ignore-scripts && node build.mjs
@@ -76,6 +78,30 @@ node skills/tome-md/scripts/md.mjs comment-reply <id> "…"  # replies (--resolv
 - **One process per computer.** It listens on 127.0.0.1 only (4750, or the next free port up) and, like the board, answers only requests addressed to this computer.
 - **Its own notes** are all in `~/.tome-md/` (`$TOME_MD_HOME` moves it): the opened files, the running process (`servers/main.json`, `kind: "md"`), the comments.
 - **Tests**: `cd apps/md && npm test`.
+
+## tome-design: a design on a canvas
+
+`scripts/design.mjs` is both the command and the local server (Node 20+, no dependencies). `scripts/page/` is the page: plain JavaScript, no build. A design is a folder: `design.json` places its artboards on the canvas, and each artboard is a plain HTML file in the folder.
+
+```sh
+node skills/tome-design/scripts/design.mjs new "Sign-in flow"     # makes designs/Sign-in flow/ with an empty design.json, opens it; prints {"url": "http://127.0.0.1:4760/d/<id>", …}
+node skills/tome-design/scripts/design.mjs open "designs/Sign-in flow"   # --board Home.html: that board alone
+node skills/tome-design/scripts/design.mjs open             # the page that lists the opened designs
+node skills/tome-design/scripts/design.mjs check "designs/Sign-in flow"  # what is wrong in design.json and the boards' HTML; exits 1 while anything is
+node skills/tome-design/scripts/design.mjs list
+node skills/tome-design/scripts/design.mjs close "designs/Sign-in flow"
+node skills/tome-design/scripts/design.mjs stop
+node skills/tome-design/scripts/design.mjs comments --wait         # waits until you send a comment to the agent, prints that comment and ends
+node skills/tome-design/scripts/design.mjs comment-reply <id> "…"  # replies (--resolve also closes it); comment-resolve <id> only closes it
+```
+
+- **The canvas**: every board at its own size, its name above it. Drag or scroll to move, pinch or ⌘ + scroll to zoom, F fits everything, 0 is 100%. Double-click a board to see it alone, at full length, with its links and scripts working (‹ › or ← → for the others, Esc back).
+- **The agent writes the files** and the open page follows: a changed board reloads at once and is outlined in green (dismiss it with "N changed" at the top right). The page itself edits nothing.
+- **Comments**: press Comment (or C), then click an element of a board or drag over an area of it, and write. "Add note" keeps it; "Send to Agent" (while an agent runs `comments --wait`) hands it over with the notes before it. The agent gets the board, the place in its px, and the element (a CSS path, its text and the start of its markup) or the elements in the area. The box at the top of the panel is about the whole design.
+- **Boards run in a sandbox**: another origin for each, with no access to the page, to this server's calls or to the network. They load files from their own folder and Google Fonts only.
+- **One process per computer.** It listens on 127.0.0.1 only (4760, or the next free port up) and answers only requests addressed to this computer. Its own notes are in `~/.tome-design/` (`$TOME_DESIGN_HOME` moves it): the opened designs, the running process (`servers/main.json`, `kind: "design"`), the comments.
+- **Not the claude-design format**: its `.dc.html` files need that skill's runtime. A tome-design board is an ordinary HTML file you can also open on its own.
+- **Tests**: `cd apps/design && npm test`.
 
 ## License
 
