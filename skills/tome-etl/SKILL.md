@@ -29,7 +29,8 @@ Tell the user what they see on the page and what you changed, never the mechanis
 `<project>` is the folder that holds `dbt_project.yml`. Quote a path that has spaces.
 
 - `open "<project>"` → starts the page (once; later calls reuse it) and prints `url`,
-  `http://127.0.0.1:4790/p/<id>`. `--select <model>`: the address that shows that model and what is around it.
+  `http://127.0.0.1:4790/p/<id>` (the next free port up when 4790 is taken; `--port n` starts from n).
+  `--select <model>`: the address that shows that model and what is around it.
   `open` alone: the list. `list`, `close "<project>"`, `stop`.
 - `parse "<project>"` → runs `dbt parse` there, so `target/manifest.json` is new. `{ok, exit, log}`; exits 1
   when dbt failed (read `log`: it names the file and the line).
