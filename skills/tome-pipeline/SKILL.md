@@ -80,7 +80,7 @@ A step: `id` (lowercase letters, digits, `-`, `_`), `title` (what the page shows
 before it), `out` (the files it writes in its own folder), and as it needs: `retry` (0–10 more tries), `timeout`
 (`"90s"`, `"15m"`, `"2h"`), `fresh: true` (it reads the outside world, so it runs every time), `in` (files of the
 pipeline's folder it reads besides its script, such as a config: a change to them runs it again), `env`
-(`{"NAME": "text"}`), `note` (for people; ignored).
+(`{"NAME": "text"}`), `note` (for people: what the step does, shown on the page; a change to it runs nothing again).
 
 - **`sh`**: `run` is a file in the folder (`steps/x.sh`, `.mjs`, `.py`; words after it are passed on) or a shell
   command. It runs in its own folder of the run, `runs/<time>/<id>/`, with `$OUT` (that folder), `$PIPELINE_DIR`,

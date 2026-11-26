@@ -192,7 +192,7 @@ export function readPipeline(root) {
     }
     seen.add(s.id);
     const at = `step "${s.id}": `;
-    const step = { id: s.id, title: typeof s.title === "string" && s.title.trim() ? s.title.trim().slice(0, 120) : s.id, kind: s.kind, needs: [], out: [], in: [], retry: 0, timeoutMs: null, fresh: s.fresh === true, env: {}, implemented: true };
+    const step = { id: s.id, title: typeof s.title === "string" && s.title.trim() ? s.title.trim().slice(0, 120) : s.id, kind: s.kind, needs: [], out: [], in: [], retry: 0, timeoutMs: null, fresh: s.fresh === true, env: {}, implemented: true, note: typeof s.note === "string" ? s.note.trim().slice(0, 2000) : "" };
     if (!KINDS.includes(s.kind)) problems.push(`${at}kind is one of ${KINDS.join(", ")}`);
     const list = (name, check) => {
       if (s[name] === undefined) return [];
@@ -463,7 +463,7 @@ function stepKey(root, p, step, ups) {
   }
   if (step.kind === "agent") add(step.prompt);
   step.in.forEach(add);
-  const def = { ...step, title: undefined, implemented: undefined, agent: step.agent ?? (step.kind === "agent" ? p.agent : undefined) };
+  const def = { ...step, title: undefined, note: undefined, implemented: undefined, agent: step.agent ?? (step.kind === "agent" ? p.agent : undefined) };
   return shortHash(JSON.stringify({ def, files, ups }));
 }
 

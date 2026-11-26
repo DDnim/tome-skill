@@ -80,6 +80,7 @@ code, .mono { font-family: var(--mono); font-size: 12px; }
 .headline { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
 .headline .st { font-size: 13px; font-weight: 600; }
 .st.failed, .st.interrupted { color: var(--fail); } .st.waiting { color: var(--wait); } .st.done { color: var(--ok); } .st.running { color: var(--run); }
+.note { margin: 10px 0 0; font-size: 13px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
 .kv { display: grid; grid-template-columns: max-content 1fr; gap: 3px 14px; font-size: 13px; margin: 10px 0 0; }
 .kv dt { color: var(--dim); } .kv dd { margin: 0; overflow-wrap: anywhere; }
 pre.log { margin: 0; padding: 10px 12px; background: var(--log-bg); color: var(--log-text); border-radius: 8px; font: 12px/1.55 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 420px; overflow: auto; }

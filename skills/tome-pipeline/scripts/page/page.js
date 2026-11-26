@@ -274,7 +274,8 @@ function defHtml(s) {
   if (s.retry) rows.push([t("Retries"), String(s.retry)]);
   if (s.timeoutMs) rows.push([t("Time limit"), dur(s.timeoutMs)]);
   if (s.fresh) rows.push([t("Always runs"), esc(t("yes (it reads the outside world)"))]);
-  return `<dl class="kv">${rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join("")}</dl>`;
+  const note = s.note ? `<p class="note">${esc(s.note)}</p>` : "";
+  return `${note}<dl class="kv">${rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join("")}</dl>`;
 }
 
 /** A CSV or TSV's first rows as a table. */
