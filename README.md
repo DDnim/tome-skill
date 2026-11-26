@@ -10,7 +10,7 @@ Skills for coding agents, made for Agent Tome and usable without it. Each skill 
 | `tome-md` | Markdown: read a file rendered in the browser, select a passage to comment on or ask about, and the agent answers in the thread and edits the file |
 | `tome-design` | A design: artboards written as plain HTML, side by side on a canvas in the browser; comment on an element or an area, and the agent changes the files and replies |
 | `tome-slides` | A slide deck: one plain HTML file per slide, the slides with their speaker notes in the browser; present full screen with a speaker view, save a PDF or a PowerPoint file, comment on an element or an area, and the agent changes the files and replies |
-| `tome-pipeline` | A pipeline: a folder of steps (scripts, prompts for an agent, questions for a person) with what each needs and makes; run it on a schedule or by hand, steps whose inputs did not change taken from the last run, a failed or waiting run carried on; a page draws the steps colored by their state, with each one's log and files |
+| `tome-pipeline` | A pipeline: a folder of steps (scripts, prompts for an agent, questions for a person) with what each needs and makes; run it on a schedule or by hand, steps whose inputs did not change taken from the last run, a failed or waiting run carried on; a page draws the steps colored by their state, with each one's log and files; comment on a step, and the agent changes it, runs it again and replies |
 | `tome-etl` | A dbt project as a graph: the models, sources, seeds and snapshots by who reads whom, one model's SQL, columns, tests and last results; models not written yet are plans drawn dashed, and the agent writes their files; a review names what lacks tests, a tested key or a description; comment on a model or a column, and the agent changes the SQL and YAML and replies |
 
 ## Install
@@ -148,9 +148,9 @@ node skills/tome-slides/scripts/slides.mjs comment-reply <id> "…"   # replies 
 
 ## tome-pipeline: a pipeline of steps
 
-![A run moves through the steps, two side by side; a question for a person waits, is answered on the page, and the run carries on to the end](docs/tome-pipeline.gif)
+![A run fails at one step and its log says why; a comment on the step is sent to the agent, which fixes the script, replies and runs it again from there, and the run ends done](docs/tome-pipeline.gif)
 
-*A run colors each step as it goes; you look at a step's log and files, answer the question that waits, and the run carries on.*
+*A step fails and its log says why. You comment on the step; the agent fixes its script, replies, and runs it again from there.*
 
 `scripts/pipeline.mjs` is the command, the runner and the local server (Node 20+, no dependencies). `scripts/page/` is the page: plain JavaScript, no build. A pipeline is a folder: `pipeline.json` lists the steps with what each needs and makes, and each step is a script or a prompt in `steps/`. Every run is a folder `runs/<time>/` with each step's log and files.
 
@@ -163,6 +163,8 @@ node skills/tome-pipeline/scripts/pipeline.mjs answer "pipelines/Daily news" pic
 node skills/tome-pipeline/scripts/pipeline.mjs status "pipelines/Daily news"
 node skills/tome-pipeline/scripts/pipeline.mjs schedule "pipelines/Daily news" --cron "0 6 * * *"   # prints the command a scheduled job runs
 node skills/tome-pipeline/scripts/pipeline.mjs open | list | close <folder> | stop
+node skills/tome-pipeline/scripts/pipeline.mjs comments --wait         # waits until you send a comment to the agent, prints that comment and ends
+node skills/tome-pipeline/scripts/pipeline.mjs comment-reply <id> "…"  # replies (--resolve also closes it); comments: the open ones
 ```
 
 - **Three kinds of step**: `sh` runs a script of the folder (or a shell command) in its own folder of the run, with the folders of the steps it needs in `$IN_<ID>`; `agent` hands a Markdown prompt to `claude -p` (or another command, such as `codex exec`) with where its inputs are and which files to write; `human` asks a person a question, its choices the lines of a file a step before it made.
@@ -170,7 +172,8 @@ node skills/tome-pipeline/scripts/pipeline.mjs open | list | close <folder> | st
 - **How it ends**: one last line, `DONE …`, `FAIL … · <step> · <why> · log <path>` or `WAIT … · <step> waits for a person`, and the exit code 0, 1 or 3 (4: the pipeline runs already). `resume` carries a failed, waiting or interrupted run on in the same folder.
 - **Not a daemon, not a scheduler**: the process carries one run and ends. Bot Tome, launchd, cron or CI starts it; whoever started it reads the exit code and the last line.
 - **The page**: the steps as a graph colored by their state in a run (dashed: not written yet), a run picked at the top. A click on a step shows its definition, its log, and its files: pictures, sound and video play, text shows, CSV and TSV as a table. A question that waits can be answered there, and the run goes on.
-- **One process per computer** for the page. It listens on 127.0.0.1 only (4780, or the next free port up). Its own notes are in `~/.tome-pipeline/` (`$TOME_PIPELINE_HOME` moves it): the opened pipelines and the running process (`servers/main.json`, `kind: "pipeline"`).
+- **Comments**: pick a step and press Comment, or write about the whole pipeline in the box at the top of the panel. "Add note" keeps a comment without sending it. While an agent runs `comments --wait` there is also "Send to Agent", which hands it this comment together with the notes added before it (your words, the step, its script or prompt, the run you were looking at and that step's log there). The agent changes the step, runs it again from there, and its reply shows under the comment.
+- **One process per computer** for the page. It listens on 127.0.0.1 only (4780, or the next free port up). Its own notes are in `~/.tome-pipeline/` (`$TOME_PIPELINE_HOME` moves it): the opened pipelines, the running process (`servers/main.json`, `kind: "pipeline"`), the comments.
 - **Tests**: `cd apps/pipeline && npm test`.
 
 ## tome-etl: a dbt project as a graph

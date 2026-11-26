@@ -10,7 +10,7 @@ Agent Tome 的 skill。每个 skill 是 `skills/<名字>/`：`SKILL.md` 告诉 a
 | `tome-md` | Markdown：在浏览器里看渲染好的文档，选中一段评论或提问，agent 在评论下面回答、改文件 |
 | `tome-design` | 设计稿：画板写成普通的 HTML，在浏览器里的画布上并排看；点一个元素或框一块区域评论，agent 改文件、在评论下面回答 |
 | `tome-slides` | 幻灯片：一页一个普通的 HTML 文件，在浏览器里看幻灯片和演讲备注；全屏演示、演讲者视图、存成 PDF 或 PowerPoint；点一个元素或框一块区域评论，agent 改文件、在评论下面回答 |
-| `tome-pipeline` | 流水线：一个文件夹里的几步（脚本、给 agent 的提示词、问人的问题），每步写明需要什么、产出什么；定时或手动跑，输入没变的步骤直接用上次的结果，失败或等人的那次运行能接着跑；页面上按状态给每一步上色，看每步的日志和产出 |
+| `tome-pipeline` | 流水线：一个文件夹里的几步（脚本、给 agent 的提示词、问人的问题），每步写明需要什么、产出什么；定时或手动跑，输入没变的步骤直接用上次的结果，失败或等人的那次运行能接着跑；页面上按状态给每一步上色，看每步的日志和产出；对一步写评论，agent 改好重跑并回复 |
 | `tome-etl` | 把 dbt 项目看成一张图：模型、来源、seed、snapshot 按谁读谁排开，点一个模型看它的 SQL、列、测试和最近的结果；还没写的模型是计划，画成虚线，由 agent 生成文件；检视会指出缺测试、缺主键测试、缺说明的模型；对模型或某一列评论，agent 改 SQL 和 YAML 并回复 |
 
 ## 安装
@@ -148,9 +148,9 @@ node skills/tome-slides/scripts/slides.mjs comment-reply <id> "…"  # 回复（
 
 ## tome-pipeline：流水线
 
-![一次运行顺着步骤往下走，两步并排跑；一个要人回答的问题停下来等，在页面上回答后接着跑完](docs/tome-pipeline.gif)
+![运行到一步失败了，日志里写着原因；对这一步写评论发给 agent，agent 改好脚本、回复，从这一步重跑，整条跑完](docs/tome-pipeline.gif)
 
-*运行时每一步按状态变色；点开一步看日志和产出的文件，回答停下来等人的问题，流水线接着跑完。（演示画面是英文界面，页面会跟随浏览器的语言。）*
+*一步失败了，日志里写着原因。对这一步写评论，agent 改好它的脚本并回复，从这一步重跑。（演示画面是英文界面，页面会跟随浏览器的语言。）*
 
 `scripts/pipeline.mjs` 既是命令、运行器，也是本机的服务（Node 20+，没有依赖）。`scripts/page/` 是页面：普通的 JavaScript，不用构建。一条流水线是一个文件夹：`pipeline.json` 列出每一步和它需要什么、产出什么，每一步是 `steps/` 里的一个脚本或提示词。每次运行是一个文件夹 `runs/<时间>/`，放着每一步的日志和产出。
 
@@ -163,6 +163,8 @@ node skills/tome-pipeline/scripts/pipeline.mjs answer pipelines/每日新闻 pic
 node skills/tome-pipeline/scripts/pipeline.mjs status pipelines/每日新闻
 node skills/tome-pipeline/scripts/pipeline.mjs schedule pipelines/每日新闻 --cron "0 6 * * *"   # 打印定时任务要执行的命令
 node skills/tome-pipeline/scripts/pipeline.mjs open | list | close <文件夹> | stop
+node skills/tome-pipeline/scripts/pipeline.mjs comments --wait        # 等人在页面上把评论发给 agent，打印那条评论后结束
+node skills/tome-pipeline/scripts/pipeline.mjs comment-reply <id> "…"  # 回复（--resolve 同时关掉）；comments：没解决的评论
 ```
 
 - **三种步骤**：`sh` 在这次运行里它自己的文件夹中跑文件夹里的脚本（或一行 shell 命令），它需要的步骤的文件夹在 `$IN_<ID>`；`agent` 把 Markdown 提示词交给 `claude -p`（或别的命令，比如 `codex exec`），并告诉它输入在哪、要写哪些文件；`human` 问人一个问题，选项是前面某一步产出的文件里的每一行。
@@ -170,7 +172,8 @@ node skills/tome-pipeline/scripts/pipeline.mjs open | list | close <文件夹> |
 - **怎么结束**：最后一行 `DONE …`、`FAIL … · <步骤> · <原因> · log <路径>` 或 `WAIT … · <步骤> waits for a person`，退出码 0、1 或 3（4：这条流水线已经在跑）。`resume` 在同一个文件夹里把失败、等人或中断的运行接着跑。
 - **不是守护进程，也不是定时器**：进程跑完一次就结束。由 Bot Tome、launchd、cron 或 CI 来启动；谁启动的谁看退出码和最后一行。
 - **页面**：步骤按依赖画成图，按某次运行里的状态上色（虚线：还没写），上面可以换一次运行。点一步看它的定义、日志和产出：图、音频、视频直接放，文字直接显示，CSV、TSV 显示成表格。等人回答的问题可以在页面上回答，回答后流水线接着跑。
-- **页面一台电脑一个进程。** 只听 127.0.0.1（4780，被占了就往上找）。自己的记录在 `~/.tome-pipeline/`（`$TOME_PIPELINE_HOME` 可以改）：打开过的流水线、在跑的进程（`servers/main.json`，`kind: "pipeline"`）。
+- **评论**：选一步点「评论」，或者在右边面板最上面的框里对整条流水线说话。「添加注释」只存下来不发；有 agent 在跑 `comments --wait` 时旁边多一个「发给 Agent」，把这一条和之前加的注释一起交给它（文字、哪一步、它的脚本或提示词、你当时看的那次运行和这一步在那次的日志）。agent 改好这一步、从这一步重跑，回复显示在评论下面。
+- **页面一台电脑一个进程。** 只听 127.0.0.1（4780，被占了就往上找）。自己的记录在 `~/.tome-pipeline/`（`$TOME_PIPELINE_HOME` 可以改）：打开过的流水线、在跑的进程（`servers/main.json`，`kind: "pipeline"`）、评论。
 - **测试**：`cd apps/pipeline && npm test`。
 
 ## tome-etl：把 dbt 项目看成一张图

@@ -1,7 +1,8 @@
 // The tome-pipeline skill: what `check` reads in pipeline.json, a run carried
 // from start to end (order, steps taken from earlier runs, retries, time
-// limits, a question for a person, an agent), `resume`, the lock, and the
-// server's rules (only opened pipelines, only files of their runs).
+// limits, a question for a person, an agent), `resume`, the lock, the
+// server's rules (only opened pipelines, only files of their runs), and the
+// comments on a step that an agent takes and answers.
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -11,7 +12,7 @@ import { fileURLToPath } from "node:url";
 
 process.env.TOME_PIPELINE_HOME = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "tome-pipeline-home-")));
 const scripts = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../../skills/tome-pipeline/scripts");
-const { answer, checkPipeline, handle, holder, lastLine, layout, listRuns, makePipeline, parseDuration, Pipelines, readPipeline, readStatus, relParts, runPipeline, view } = await import(path.join(scripts, "pipeline.mjs"));
+const { answer, checkPipeline, cleanAnchor, handle, holder, lastLine, layout, listRuns, makePipeline, parseDuration, Pipelines, readPipeline, readStatus, relParts, runPipeline, view } = await import(path.join(scripts, "pipeline.mjs"));
 
 /** A pipeline's folder with these steps and files; `calls.log` beside it gets a line per step that ran. */
 function folder(steps, files = {}, extra = {}) {
@@ -311,6 +312,45 @@ test("the server: only this machine, only opened pipelines, only the files of th
   assert.equal((await handle(ctx, req("GET", `/p/${d.id}`))).status, 200);
   assert.equal((await handle(ctx, req("GET", "/page.js"))).status, 200);
   assert.equal((await handle(ctx, req("GET", "/pipeline.mjs"))).status, 404);
+});
+
+test("comments: on a step or the whole pipeline, saved, sent, taken by a waiting agent with the file to change, answered", async () => {
+  const dir = folder([
+    { id: "fetch", kind: "sh", run: "steps/fetch.sh", out: ["a.txt"] },
+    { id: "chart", kind: "sh", title: "Chart", run: "steps/chart.sh", needs: ["fetch"] },
+  ], { "steps/fetch.sh": sh("echo a > a.txt"), "steps/chart.sh": sh("echo no such column >&2; exit 1") });
+  const st = await runPipeline(dir, quiet);
+  assert.equal(st.state, "failed");
+  const d = new Pipelines().add(dir);
+  const ctx = {};
+  const post = (body) => handle(ctx, req("POST", `/api/comments?id=${d.id}`, body));
+  const note = json(await post({ op: "new", anchor: { step: "fetch" }, text: "  keep a copy?  " })).thread;
+  assert.equal(note.n, 1);
+  assert.deepEqual(note.anchor, { step: "fetch", title: "fetch", run: null });
+  assert.equal(note.messages[0].text, "keep a copy?");
+  assert.equal(note.sent, null);
+  const fix = json(await post({ op: "new", anchor: { step: "chart", run: st.run }, text: "the column is called area now", send: true })).thread;
+  assert.ok(fix.sent);
+
+  const taken = json(await handle(ctx, req("POST", `/api/comments/take?id=${d.id}&ms=0`)));
+  // The note went out with the one sent; the agent gets the file to change, the run's log, and how to run it again.
+  assert.deepEqual([taken.thread.n, ...taken.also.map((x) => x.n)], [1, 2]);
+  const chart = taken.also[0];
+  assert.deepEqual([chart.step, chart.title, chart.kind, chart.file, chart.run, chart.state], ["chart", "Chart", "sh", path.join(dir, "steps/chart.sh"), st.run, "failed"]);
+  assert.equal(chart.log, path.join(dir, "runs", st.run, "chart", "_log.txt"));
+  assert.match(chart.rerun, /resume ".*" --from chart$/);
+  assert.equal(json(await handle(ctx, req("POST", `/api/comments/take?id=${d.id}&ms=0`))).thread, null);
+
+  assert.equal(json(await post({ op: "say", id: note.id, text: "and the date?", send: true })).thread.taken, null);
+  assert.equal(json(await handle(ctx, req("POST", "/api/comments/take?ms=0"))).thread.id, note.id);
+  assert.equal(json(await post({ op: "resolve", id: note.id })).thread.resolved, true);
+  const r = json(await handle(ctx, req("GET", `/api/comments?id=${d.id}`)));
+  assert.equal(r.threads.length, 2);
+  assert.equal(r.listening, true); // an agent asked a moment ago
+  assert.equal(json(await handle(ctx, req("GET", "/api/pipelines"))).pipelines.find((x) => x.id === d.id).open, 1);
+  for (const bad of [{ op: "new", text: "" }, { op: "new", anchor: { step: "nothing" }, text: "x" }, { op: "new", anchor: { step: "chart", run: "2000-01-01_000000" }, text: "x" }, { op: "new", anchor: "chart", text: "x" }, { op: "nothing", id: note.id }]) assert.equal((await post(bad)).status, 400, JSON.stringify(bad));
+  assert.equal((await handle(ctx, req("POST", `/api/comments?id=${d.id}`, { op: "new", text: "x" }, { "x-tome-pipeline": null }))).status, 403);
+  assert.deepEqual(cleanAnchor(dir, { step: "chart" }), { step: "chart", title: "Chart", run: null });
 });
 
 test("every word of the page has a Chinese and a Japanese version", async () => {

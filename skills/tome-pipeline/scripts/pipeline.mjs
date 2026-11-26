@@ -11,8 +11,9 @@
 // last line that says how it ended.
 //
 // The same script serves a page on 127.0.0.1 that draws the steps and shows
-// each one's state, log and files. No dependencies: Node 20+. Its own notes
-// are in `~/.tome-pipeline` (which pipelines are open, the running page).
+// each one's state, log and files, and takes comments on a step that an agent
+// answers. No dependencies: Node 20+. Its own notes are in `~/.tome-pipeline`
+// (which pipelines are open, the running page, the comments).
 
 import { spawn } from "node:child_process";
 import crypto from "node:crypto";
@@ -39,6 +40,11 @@ const WRITE_HEADER = "x-tome-pipeline";
 const LOG = "_log.txt";
 const PROMPT = "_prompt.md";
 const LOCK = ".lock";
+const MAX_COMMENT = 8000;
+const WAIT_MS = 25000;
+const TAKE_STEP_MS = 400;
+/** How long the page still shows an agent as listening after its wait ended (it asks again right away). */
+const LISTEN_GRACE_MS = 3000;
 export const EXIT = { done: 0, failed: 1, usage: 2, waiting: 3, busy: 4 };
 const here = path.dirname(fs.realpathSync(fileURLToPath(import.meta.url)));
 const PAGE = path.join(here, "page");
@@ -1046,6 +1052,179 @@ function logTail(file) {
   }
 }
 
+// ---- comments ----
+//
+// `<home>/comments/<pipeline id>/comments.json`: {root, next, threads}. A
+// thread: {id, n, at, anchor, messages: [{from: "user" | "agent", text, at}],
+// sent, taken, resolved}. `anchor` (null: the whole pipeline): {step (its id),
+// title, run (the run the person was looking at, or null)}. `sent`: the person
+// handed it to an agent; `taken`: a waiting agent got it. A thread not sent is
+// a note: it goes out with the next one that is sent.
+
+function commentText(v) {
+  const text = typeof v === "string" ? v.trim() : "";
+  if (!text) throw new Fail("Invalid", "the comment has no text");
+  if (text.length > MAX_COMMENT) throw new Fail("Invalid", "the comment is too long");
+  return text;
+}
+
+/** A comment's place as the page gives it, checked against the pipeline. */
+export function cleanAnchor(root, a) {
+  if (a === null || a === undefined) return null;
+  if (typeof a !== "object" || typeof a.step !== "string") throw new Fail("Invalid", "anchor");
+  const s = readPipeline(root).steps.find((x) => x.id === a.step);
+  if (!s) throw new Fail("Invalid", "anchor.step");
+  let run = null;
+  if (a.run !== undefined && a.run !== null) {
+    if (typeof a.run !== "string" || !RUN_NAME.test(a.run) || !listRuns(root).includes(a.run)) throw new Fail("Invalid", "anchor.run");
+    run = a.run;
+  }
+  return { step: s.id, title: s.title, run };
+}
+
+export class Comments {
+  constructor() {
+    this.root = path.join(homeDir(), "comments");
+  }
+
+  load(d) {
+    const v = readJson(path.join(this.root, d.id, "comments.json"));
+    if (v && Array.isArray(v.threads)) return { root: d.root, next: Number(v.next) || v.threads.length + 1, threads: v.threads };
+    return { root: d.root, next: 1, threads: [] };
+  }
+
+  store(data) {
+    atomicWrite(path.join(this.root, shortHash(data.root), "comments.json"), Buffer.from(JSON.stringify(data, null, 2)), 0o600);
+  }
+
+  all() {
+    let names = [];
+    try {
+      names = fs.readdirSync(this.root);
+    } catch {
+      return [];
+    }
+    const out = [];
+    for (const name of names.sort()) {
+      const v = readJson(path.join(this.root, name, "comments.json"));
+      if (v && typeof v.root === "string" && Array.isArray(v.threads) && name === shortHash(v.root)) out.push(v);
+    }
+    return out;
+  }
+
+  find(id) {
+    for (const data of this.all()) {
+      const thread = data.threads.find((t) => t.id === id);
+      if (thread) return { data, thread };
+    }
+    throw new Fail("NotFound", `no comment ${id}`);
+  }
+
+  /** Sending one sends the pipeline's notes too: the open threads the person wrote last in and never sent. */
+  sendNotes(data, at) {
+    for (const t of data.threads) {
+      if (!t.resolved && !t.sent && t.messages[t.messages.length - 1]?.from === "user") t.sent = at;
+    }
+  }
+
+  add(d, { anchor, text, send }) {
+    const body = commentText(text);
+    const where = cleanAnchor(d.root, anchor);
+    const data = this.load(d);
+    const at = now();
+    const thread = { id: crypto.randomBytes(5).toString("hex"), n: data.next, at, anchor: where, messages: [{ from: "user", text: body, at }], sent: send ? at : null, taken: null, resolved: false };
+    data.next += 1;
+    if (send) this.sendNotes(data, at);
+    data.threads.push(thread);
+    this.store(data);
+    return thread;
+  }
+
+  say(id, from, text, { send = false, resolve = false } = {}) {
+    const { data, thread } = this.find(id);
+    const at = now();
+    thread.messages.push({ from, text: commentText(text), at });
+    if (from === "user") {
+      thread.sent = send ? at : null;
+      thread.taken = null;
+      thread.resolved = false;
+      if (send) this.sendNotes(data, at);
+    } else if (resolve) thread.resolved = true;
+    this.store(data);
+    return { data, thread };
+  }
+
+  send(id) {
+    const { data, thread } = this.find(id);
+    thread.sent = now();
+    thread.taken = null;
+    thread.resolved = false;
+    this.sendNotes(data, thread.sent);
+    this.store(data);
+    return { data, thread };
+  }
+
+  resolve(id, resolved) {
+    const { data, thread } = this.find(id);
+    thread.resolved = Boolean(resolved);
+    this.store(data);
+    return { data, thread };
+  }
+
+  /** Every thread sent and not yet taken (of that pipeline; null: of any), marked taken: [{data, thread}]. */
+  take(d) {
+    const out = [];
+    const at = now();
+    for (const data of d === null ? this.all() : [this.load(d)]) {
+      const mine = data.threads.filter((t) => t.sent && !t.taken && !t.resolved);
+      if (mine.length === 0) continue;
+      for (const thread of mine) {
+        thread.taken = at;
+        out.push({ data, thread });
+      }
+      this.store(data);
+    }
+    return out;
+  }
+}
+
+/** A thread as an agent reads it: the step it is about, the file to change, that run's log, and how to run it again. */
+function describeThread(root, thread) {
+  const a = thread.anchor;
+  let where = {};
+  if (a && isFile(path.join(root, INDEX))) {
+    const s = readPipeline(root).steps.find((x) => x.id === a.step);
+    if (!s) where = { note: "this step is no longer in pipeline.json: find it by its title" };
+    else {
+      const rel = s.kind === "sh" ? runFile(s.run)?.rel : s.kind === "agent" ? s.prompt : null;
+      const run = a.run ?? listRuns(root)[0] ?? null;
+      const st = run ? readStatus(root, run)?.steps?.[s.id] : null;
+      const log = run ? path.join(runsDir(root), run, s.id, LOG) : null;
+      where = {
+        kind: s.kind,
+        file: rel ? path.join(root, rel) : path.join(root, INDEX),
+        run,
+        state: st?.state ?? null,
+        ...(st?.error ? { error: st.error } : {}),
+        ...(log && isFile(log) ? { log } : {}),
+        rerun: `node ${JSON.stringify(ME)} resume ${JSON.stringify(root)} --from ${s.id}`,
+      };
+    }
+  }
+  return {
+    id: thread.id,
+    n: thread.n,
+    pipeline: root,
+    step: a?.step ?? null,
+    title: a?.title ?? null,
+    ...where,
+    messages: thread.messages,
+    sent: Boolean(thread.sent),
+    resolved: thread.resolved,
+    ...(isDir(root) ? {} : { note: "this pipeline's folder is gone" }),
+  };
+}
+
 // ---- the page ----
 
 const TYPES = {
@@ -1091,6 +1270,14 @@ export async function handle(ctx, req) {
   if ((req.path.startsWith("/api/") || req.path.startsWith("/o/")) && site !== undefined && site !== "same-origin" && site !== "none") return text(403, "not from the page");
   if (req.method !== "GET" && req.method !== "HEAD" && h(WRITE_HEADER) === undefined) return text(403, "not from the page");
   const pipelines = (ctx.pipelines ??= new Pipelines());
+  const comments = (ctx.comments ??= new Comments());
+  /** The agents waiting for a comment now: a key → {id (null: any pipeline), until}. */
+  const waiters = (ctx.waiters ??= new Map());
+  const listening = (id) => [...waiters.values()].some((w) => w.until > Date.now() && (w.id === null || w.id === id));
+  const ms = () => {
+    const n = Number(req.query.get("ms"));
+    return Number.isFinite(n) && req.query.get("ms") !== null ? Math.min(WAIT_MS, Math.max(0, n)) : WAIT_MS;
+  };
   const body = () => {
     try {
       const v = JSON.parse(req.body.toString("utf8"));
@@ -1102,7 +1289,7 @@ export async function handle(ctx, req) {
   try {
     const route = `${req.method} ${req.path}`;
     if (route === "GET /api/ping") return json(200, { ok: true, pid: process.pid, build: ctx.build, home: homeDir() });
-    if (route === "GET /api/pipelines") return json(200, { pipelines: pipelines.list() });
+    if (route === "GET /api/pipelines") return json(200, { pipelines: pipelines.list().map((d) => ({ ...d, open: comments.load(d).threads.filter((t) => !t.resolved).length })) });
     if (route === "GET /api/pipeline") {
       const id = req.query.get("id");
       if (id === null) return bad("id");
@@ -1135,6 +1322,47 @@ export async function handle(ctx, req) {
       }
       return json(200, { ...done, resumed });
     }
+    if (route === "GET /api/comments") {
+      const id = req.query.get("id");
+      if (id === null) return bad("id");
+      return json(200, { threads: comments.load(pipelines.get(id)).threads, listening: listening(id) });
+    }
+    if (route === "POST /api/comments") {
+      // What the page does: {op: "new", anchor, text, send?}, {op: "say", id, text, send?}, {op: "send", id}, {op: "resolve", id, resolved}.
+      const id = req.query.get("id");
+      if (id === null) return bad("id");
+      const d = pipelines.get(id);
+      const b = body();
+      if (!b) return bad("the body is not a JSON object");
+      if (b.op === "new") return json(200, { thread: comments.add(d, { anchor: b.anchor, text: b.text, send: b.send === true }) });
+      if (typeof b.id !== "string") return bad("id");
+      if (comments.find(b.id).data.root !== d.root) throw new Fail("NotFound", `no comment ${b.id}`);
+      if (b.op === "say") return json(200, { thread: comments.say(b.id, "user", b.text, { send: b.send === true }).thread });
+      if (b.op === "send") return json(200, { thread: comments.send(b.id).thread });
+      if (b.op === "resolve") return json(200, { thread: comments.resolve(b.id, b.resolved !== false).thread });
+      return bad("op");
+    }
+    if (route === "POST /api/comments/take") {
+      // An agent's wait: what the person sent ({thread, also: the others sent with it}), or {thread: null} after a while.
+      const id = req.query.get("id");
+      const d = id === null ? null : pipelines.get(id);
+      const until = Date.now() + ms();
+      const key = crypto.randomUUID();
+      waiters.set(key, { id, until: until + LISTEN_GRACE_MS });
+      try {
+        for (;;) {
+          const [first, ...rest] = comments.take(d).map((g) => describeThread(g.data.root, g.thread));
+          if (first) return json(200, { thread: first, also: rest });
+          if (Date.now() >= until || req.gone?.()) return json(200, { thread: null });
+          await sleep(TAKE_STEP_MS);
+        }
+      } finally {
+        if (req.gone?.()) waiters.delete(key);
+        else waiters.get(key).until = Date.now() + LISTEN_GRACE_MS;
+        for (const [k, w] of waiters) if (w.until <= Date.now()) waiters.delete(k);
+      }
+    }
+    if (req.path.startsWith("/api/")) return text(404, "no such call");
     const o = req.path.match(/^\/o\/([0-9a-f]{16})\/([^/]+)\/([^/]+)\/(.+)$/);
     if (o && (req.method === "GET" || req.method === "HEAD")) {
       const [, id, run, step, rel] = o;
@@ -1239,6 +1467,8 @@ export async function serve(firstPort = DEFAULT_PORT) {
   server.on("request", (req, res) => {
     const chunks = [];
     let size = 0;
+    let closed = false;
+    res.on("close", () => (closed = true));
     req.on("data", (c) => {
       size += c.length;
       if (size > MAX_BODY) req.destroy();
@@ -1250,7 +1480,7 @@ export async function serve(firstPort = DEFAULT_PORT) {
         const url = new URL(req.url, "http://x");
         const pathname = decodeURIComponent(url.pathname);
         if (pathname.includes("\0")) throw new Error("nul");
-        out = await handle(ctx, { method: req.method, path: pathname, query: url.searchParams, headers: req.headers, body: Buffer.concat(chunks) });
+        out = await handle(ctx, { method: req.method, path: pathname, query: url.searchParams, headers: req.headers, body: Buffer.concat(chunks), gone: () => closed });
       } catch {
         out = { status: 400, type: TYPES.txt, body: Buffer.from("bad request\n") };
       }
@@ -1343,6 +1573,11 @@ pipeline.mjs close FOLDER              take it off the list (the files stay)
 pipeline.mjs stop                      end the page's process
 pipeline.mjs serve                     run the page here, in the foreground
 
+pipeline.mjs comments [FOLDER]         the open comments (of that pipeline; none: of every pipeline); --all: the resolved ones too
+pipeline.mjs comments [FOLDER] --wait  wait until the person sends a comment to the agent; prints that thread and ends
+pipeline.mjs comment-reply ID TEXT     reply to a comment (TEXT "-": from stdin); --resolve also closes it
+pipeline.mjs comment-resolve ID        close a comment; --reopen opens it again
+
 run and resume print a line per step and end with one line: DONE …, FAIL …, WAIT … or STOP …;
 they exit 0 (done), 1 (a step failed), 3 (a step waits for a person) or 4 (the pipeline is running already).
 
@@ -1364,7 +1599,8 @@ async function main(argv) {
       if (v === undefined) fail(`${name} needs a value`);
       return v;
     };
-    if (["--all", "--resume"].includes(a)) flags.add(a.slice(2));
+    if (["--all", "--resume", "--wait", "--reopen"].includes(a)) flags.add(a.slice(2));
+    else if (a === "--resolve" && (command === "comment-reply" || command === "comment-resolve")) flags.add("resolve");
     else if (a === "--port") {
       const v = value(a);
       if (!/^\d+$/.test(v)) fail("--port is a number");
@@ -1376,6 +1612,7 @@ async function main(argv) {
   }
   const print = (v) => console.log(JSON.stringify(v, null, 2));
   const pipelines = new Pipelines();
+  const comments = new Comments();
   const folder = (what) => (words.length ? rootOf(words[0]) : fail(`${what} needs a pipeline's folder`));
   const urlOf = (base, d) => `${base}p/${d.id}`;
   const runIt = async (root, o) => {
@@ -1426,7 +1663,7 @@ async function main(argv) {
     }
     if (command === "list") {
       const state = await running();
-      return print(pipelines.list().map((d) => ({ id: d.id, root: d.root, title: d.title, steps: d.steps, last: d.last, url: state ? urlOf(state.url, d) : null })));
+      return print(pipelines.list().map((d) => ({ id: d.id, root: d.root, title: d.title, steps: d.steps, last: d.last, url: state ? urlOf(state.url, d) : null, comments: comments.load(d).threads.filter((t) => !t.resolved).length })));
     }
     if (command === "close") {
       const root = folder("close");
@@ -1444,6 +1681,43 @@ async function main(argv) {
       const res = { url: state.url, pid: state.pid, reused: state.reused, stop: `node ${JSON.stringify(ME)} stop` };
       if (!d) return print(res);
       return print({ ...res, url: urlOf(state.url, d), id: d.id, title: d.title, root: d.root, index: path.join(d.root, INDEX), steps: d.steps });
+    }
+    if (command === "comments") {
+      let d = null;
+      if (words.length) {
+        const root = rootOf(words[0]);
+        d = pipelines.list().find((x) => x.root === root) ?? fail(`not an opened pipeline: ${root} (open it first)`);
+      }
+      if (!flags.has("wait")) {
+        const out = [];
+        for (const data of d ? [comments.load(d)] : comments.all()) {
+          for (const t of data.threads) if (flags.has("all") || !t.resolved) out.push(describeThread(data.root, t));
+        }
+        return print(out);
+      }
+      const again = `node ${JSON.stringify(ME)} comments${d ? " " + JSON.stringify(d.root) : ""} --wait`;
+      for (;;) {
+        try {
+          const state = await ensure(port);
+          const query = new URLSearchParams(d ? { id: d.id } : {});
+          const res = await fetch(`${state.url}api/comments/take?${query}`, { method: "POST", headers: { [WRITE_HEADER]: "1" }, signal: AbortSignal.timeout(WAIT_MS + 15000) });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const { thread, also } = await res.json();
+          if (thread) return print({ ...thread, also: also ?? [], next: again });
+        } catch {
+          await sleep(2000);
+        }
+      }
+    }
+    if (command === "comment-reply" || command === "comment-resolve") {
+      if (words.length === 0) fail(`${command} needs a comment's id`);
+      let done;
+      if (command === "comment-resolve") done = comments.resolve(words[0], !flags.has("reopen"));
+      else {
+        if (words.length < 2) fail("comment-reply needs the text (or - for stdin)");
+        done = comments.say(words[0], "agent", words[1] === "-" ? fs.readFileSync(0, "utf8") : words[1], { resolve: flags.has("resolve") });
+      }
+      return print(describeThread(done.data.root, done.thread));
     }
   } catch (e) {
     fail(e.message, e instanceof Fail && e.code === "Busy" ? EXIT.busy : EXIT.usage);

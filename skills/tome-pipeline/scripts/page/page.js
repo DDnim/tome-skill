@@ -2,8 +2,10 @@
 // a graph colored by their state in a run (the latest unless another is
 // chosen), and under it the chosen step: what it is, its log, the files it
 // made (pictures, sound, video, text and tables shown), and, when it is a
-// question for a person that waits, a form to answer it. It follows the files:
-// a running pipeline's graph moves as its steps end.
+// question for a person that waits, a form to answer it. On the right the
+// comments, on a step or the whole pipeline, which an agent that waits takes
+// and answers. It follows the files: a running pipeline's graph moves as its
+// steps end.
 
 // ---- words ----
 
@@ -66,6 +68,25 @@ const zh = {
   "beginning cut": "前面省略了",
   "Download": "下载",
   "(none)": "（无）",
+  "Comments": "评论",
+  "Comment": "评论",
+  "An agent is listening. Sending one comment sends your notes with it.": "Agent 在等评论。发给它时，之前加的注释会一起发出去。",
+  "No agent is listening. Notes are saved for it to read.": "没有 Agent 在等。注释会存下来，等它来读。",
+  "Ask about this pipeline, or say what to change.": "对这条流水线提问，或者说要怎么改。",
+  "What about this step? Ask, or say what to change.": "这一步怎么了？提问，或者说要怎么改。",
+  "Send to Agent": "发给 Agent",
+  "Add note": "添加注释",
+  "Note, not sent": "注释，还没发",
+  "Reply": "回复",
+  "Resolve": "解决",
+  "Sent to Agent": "已发给 Agent",
+  "Agent": "Agent",
+  "You": "你",
+  "Whole pipeline, not one step": "整条流水线",
+  "Drop this place": "不针对这里",
+  "No comments yet. Select a step and press Comment.": "还没有评论。选一个步骤，按「评论」。",
+  "{n} open comments": "{n} 条未解决的评论",
+  "run {run}": "{run} 那次",
 };
 const ja = {
   "Pipelines": "パイプライン",
@@ -126,6 +147,25 @@ const ja = {
   "beginning cut": "前半は省略",
   "Download": "ダウンロード",
   "(none)": "（なし）",
+  "Comments": "コメント",
+  "Comment": "コメント",
+  "An agent is listening. Sending one comment sends your notes with it.": "Agent がコメントを待っています。送ると、それまでのメモも一緒に送られます。",
+  "No agent is listening. Notes are saved for it to read.": "待っている Agent はいません。メモは保存され、あとで読まれます。",
+  "Ask about this pipeline, or say what to change.": "このパイプラインについて質問するか、直したい点を書いてください。",
+  "What about this step? Ask, or say what to change.": "このステップについて質問するか、直したい点を書いてください。",
+  "Send to Agent": "Agent に送る",
+  "Add note": "メモを追加",
+  "Note, not sent": "メモ（未送信）",
+  "Reply": "返信",
+  "Resolve": "解決",
+  "Sent to Agent": "Agent に送信済み",
+  "Agent": "Agent",
+  "You": "あなた",
+  "Whole pipeline, not one step": "パイプライン全体",
+  "Drop this place": "ここに限らない",
+  "No comments yet. Select a step and press Comment.": "コメントはまだありません。ステップを選んで「コメント」を押します。",
+  "{n} open comments": "未解決のコメント {n} 件",
+  "run {run}": "{run} の実行",
 };
 export const tables = { zh, ja };
 const language = navigator.language || "en";
@@ -160,6 +200,8 @@ const api = {
   pipeline: (id, run) => call("/api/pipeline?" + q({ id, run })),
   step: (id, run, step) => call("/api/step?" + q({ id, run, step })),
   answer: (id, body) => call("/api/answer?" + q({ id }), { method: "POST", headers: WRITE, body: JSON.stringify(body) }),
+  comments: (id) => call("/api/comments?" + q({ id })),
+  comment: (id, body) => call("/api/comments?" + q({ id }), { method: "POST", headers: WRITE, body: JSON.stringify(body) }),
 };
 const fileUrl = (id, run, step, file, params = {}) => `/o/${id}/${encodeURIComponent(run)}/${encodeURIComponent(step)}/${file.split("/").map(encodeURIComponent).join("/")}${Object.keys(params).length ? "?" + q(params) : ""}`;
 
@@ -195,7 +237,7 @@ async function showList() {
           .map(
             (p) => `<a class="list-row" href="/p/${p.id}"><b>${esc(p.title)}</b><span class="mono dim">${esc(p.root)}</span><span class="dim" style="font-size:12px">${esc(t("{n} steps", { n: p.steps }))} · ${
               p.last ? `<span class="dot ${esc(p.last.state)}"></span>${esc(shortRun(p.last.run))} ${esc(t(p.last.state))}` : esc(t("never run"))
-            }</span></a>`,
+            }${p.open ? ` · <span class="count">${esc(t("{n} open comments", { n: p.open }))}</span>` : ""}</span></a>`,
           )
           .join("")
       : `<p class="dim">${esc(t("No pipeline is open. An agent opens one with the tome-pipeline skill."))}</p>`
@@ -238,7 +280,7 @@ function stepLine(v, s) {
   }
 }
 
-function graphHtml(v, sel) {
+function graphHtml(v, sel, pins = {}) {
   if (!v.steps.length) return `<p class="empty" style="margin:12px 16px">${esc(t("No steps yet."))}</p>`;
   const cols = Math.max(...v.steps.map((s) => s.at[0])) + 1;
   const lanes = v.lanes ?? {};
@@ -287,7 +329,7 @@ function graphHtml(v, sel) {
   const nodes = v.steps
     .map((s) => {
       const line = stepLine(v, s);
-      return `<button class="node ${line.cls}${s.id === sel ? " sel" : ""}" data-step="${esc(s.id)}" style="left:${pos[s.id][0]}px;top:${pos[s.id][1]}px"><span class="k">${esc(s.kind)}</span><div class="t">${esc(s.title)} ${s.title !== s.id ? `<span class="mono">${esc(s.id)}</span>` : ""}</div><div class="s" title="${esc(line.text)}">${esc(line.text)}</div></button>`;
+      return `<button class="node ${line.cls}${s.id === sel ? " sel" : ""}" data-step="${esc(s.id)}" style="left:${pos[s.id][0]}px;top:${pos[s.id][1]}px">${pins[s.id] ? `<span class="pin">${pins[s.id]}</span>` : ""}<span class="k">${esc(s.kind)}</span><div class="t">${esc(s.title)} ${s.title !== s.id ? `<span class="mono">${esc(s.id)}</span>` : ""}</div><div class="s" title="${esc(line.text)}">${esc(line.text)}</div></button>`;
     })
     .join("");
   const marker = (id, color) => `<marker id="${id}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" style="fill:${color};stroke:none"/></marker>`;
@@ -373,14 +415,24 @@ async function showPipeline(id) {
   let chosenRun = null; // null: follow the latest
   let lowerKey = "";
   let stepData = null;
+  // The comments: the threads, whether an agent waits, the one opened, the place of the one being written, what is typed.
+  const cm = { threads: [], listening: false, seen: "", active: null, draft: null, texts: {} };
+  const openThreads = () => cm.threads.filter((x) => !x.resolved);
 
   root.innerHTML = `<div class="pipe">
-    <header class="bar"><a href="/" aria-label="${esc(t("All pipelines"))}">←</a><span class="name"></span><span class="path mono"></span><span class="grow"></span><span class="warn"></span><span class="busy dim"></span><div class="runs"></div></header>
-    <div class="legend"><span class="plan">${esc(t("Not written yet"))}</span><span class="done">${esc(t("Done"))}</span><span class="skipped">${esc(t("Unchanged, taken"))}</span><span class="running">${esc(t("Running"))}</span><span class="failed">${esc(t("Failed"))}</span><span class="waiting">${esc(t("Waits for you"))}</span></div>
-    <div class="graph-wrap"></div>
-    <div class="lower"><section class="pane left"></section><section class="pane right"></section></div>
+    <header class="bar"><a href="/" aria-label="${esc(t("All pipelines"))}">←</a><span class="name"></span><span class="path mono"></span><span class="grow"></span><span class="warn"></span><span class="busy dim"></span><div class="runs"></div><button class="toggle"></button></header>
+    <div class="body">
+      <main class="main">
+        <div class="legend"><span class="plan">${esc(t("Not written yet"))}</span><span class="done">${esc(t("Done"))}</span><span class="skipped">${esc(t("Unchanged, taken"))}</span><span class="running">${esc(t("Running"))}</span><span class="failed">${esc(t("Failed"))}</span><span class="waiting">${esc(t("Waits for you"))}</span></div>
+        <div class="graph-wrap"></div>
+        <div class="lower"><section class="pane left"></section><section class="pane right"></section></div>
+      </main>
+      <aside class="panel"></aside>
+    </div>
   </div>`;
+  const page = root.querySelector(".pipe");
   const $ = (s) => root.querySelector(s);
+  const panel = $(".panel");
 
   const renderTop = () => {
     document.title = v.title;
@@ -391,9 +443,13 @@ async function showPipeline(id) {
     $(".busy").textContent = v.busy ? t("Running now (pid {pid})", { pid: v.busy.pid }) : "";
     const runName = v.run?.run ?? null;
     $(".runs").innerHTML = v.runs.map((r) => `<button data-run="${esc(r.run)}" class="${r.run === runName ? "on" : ""}"><span class="dot ${esc(r.state ?? "")}"></span>${esc(shortRun(r.run))}${r.state && r.state !== "done" ? ` ${esc(t(r.state))}` : ""}</button>`).join("");
+    const n = openThreads().length;
+    $(".toggle").innerHTML = `${esc(t("Comments"))}${n ? ` ${n}` : ""}${cm.listening ? '<em class="listening"></em>' : ""}`;
+    const pins = {};
+    for (const x of openThreads()) if (x.anchor) pins[x.anchor.step] = x.n;
     const wrap = $(".graph-wrap");
     const sx = wrap.scrollLeft;
-    wrap.innerHTML = graphHtml(v, sel);
+    wrap.innerHTML = graphHtml(v, sel, pins);
     wrap.scrollLeft = sx;
   };
 
@@ -425,7 +481,7 @@ async function showPipeline(id) {
     if (keepAnswer && form) {
       left.querySelector(".log-box").innerHTML = logHtml;
     } else {
-      left.innerHTML = `<div class="headline"><h2>${esc(s.title)}${s.title !== s.id ? ` <span class="mono dim">${esc(s.id)}</span>` : ""}</h2><span class="st ${esc(line.cls)}">${esc(line.text)}</span></div>${form}${hint}${defHtml(s)}${s.kind !== "human" ? `<h3>${esc(t("Log"))}</h3><div class="log-box">${logHtml}</div>` : ""}`;
+      left.innerHTML = `<div class="headline"><h2>${esc(s.title)}${s.title !== s.id ? ` <span class="mono dim">${esc(s.id)}</span>` : ""}</h2><span class="st ${esc(line.cls)}">${esc(line.text)}</span><span class="grow"></span><button class="comment-here">${esc(t("Comment"))}</button></div>${form}${hint}${defHtml(s)}${s.kind !== "human" ? `<h3>${esc(t("Log"))}</h3><div class="log-box">${logHtml}</div>` : ""}`;
       const pre = left.querySelector("pre.log");
       if (pre) pre.scrollTop = pre.scrollHeight;
       if (form) wireAnswer(left, s, runName);
@@ -466,21 +522,146 @@ async function showPipeline(id) {
     });
   };
 
+  const select = (step) => {
+    sel = step;
+    history.replaceState(null, "", `?step=${encodeURIComponent(sel)}`);
+    renderTop();
+    renderLower(true);
+  };
   root.addEventListener("click", (e) => {
     const node = e.target.closest(".node");
-    if (node) {
-      sel = node.dataset.step;
-      history.replaceState(null, "", `?step=${encodeURIComponent(sel)}`);
-      renderTop();
-      renderLower(true);
-      return;
-    }
+    if (node) return void select(node.dataset.step);
     const r = e.target.closest(".runs button");
     if (r) {
       chosenRun = r.dataset.run === v.runs[0]?.run ? null : r.dataset.run;
-      refresh(true);
+      return void refresh(true);
+    }
+    if (e.target.closest(".toggle")) return void page.classList.toggle("panel-open");
+    const s = e.target.closest(".comment-here") && v.steps.find((x) => x.id === sel);
+    if (s) {
+      cm.draft = { step: s.id, title: s.title, run: v.run?.run ?? null };
+      page.classList.add("panel-open");
+      renderPanel();
+      panel.querySelector('.composer[data-key="new"] textarea')?.focus();
     }
   });
+
+  // -- the comments --
+
+  const aboutHtml = (a) => `<b>${esc(a.title)}</b>${a.run ? ` · <span class="dim">${esc(t("run {run}", { run: shortRun(a.run) }))}</span>` : ""}`;
+  const composer = (key, placeholder) => `
+    <div class="composer" data-key="${esc(key)}">
+      <textarea rows="3" placeholder="${esc(placeholder)}">${esc(cm.texts[key] ?? "")}</textarea>
+      <div class="actions"><button class="note">${esc(t("Add note"))}</button>${cm.listening ? `<button class="primary submit">${esc(t("Send to Agent"))}</button>` : ""}</div>
+    </div>`;
+
+  function renderPanel() {
+    const focused = document.activeElement?.closest?.(".composer")?.dataset.key;
+    const caret = focused ? [document.activeElement.selectionStart, document.activeElement.selectionEnd] : null;
+    const threads = openThreads();
+    panel.innerHTML =
+      `<div class="agent${cm.listening ? " on" : ""}">${esc(cm.listening ? t("An agent is listening. Sending one comment sends your notes with it.") : t("No agent is listening. Notes are saved for it to read."))}</div>` +
+      `<div class="new">` +
+      (cm.draft
+        ? `<div class="about">${aboutHtml(cm.draft)}<button class="drop" title="${esc(t("Drop this place"))}">×</button></div>` + composer("new", t("What about this step? Ask, or say what to change."))
+        : composer("new", t("Ask about this pipeline, or say what to change."))) +
+      `</div>` +
+      (threads.length === 0 ? `<p class="dim empty">${esc(t("No comments yet. Select a step and press Comment."))}</p>` : "") +
+      threads
+        .slice()
+        .reverse()
+        .map((x) => {
+          const last = x.messages[x.messages.length - 1];
+          const mine = last?.from === "user";
+          const on = x.id === cm.active;
+          return (
+            `<div class="thread${on ? " on" : ""}" data-thread="${esc(x.id)}">` +
+            `<div class="thread-head"><span class="pin">${x.n}</span>` +
+            (x.anchor ? "" : `<span class="dim">${esc(t("Whole pipeline, not one step"))}</span>`) +
+            (mine ? `<span class="dim">${esc(x.sent ? t("Sent to Agent") : t("Note, not sent"))}</span>` : "") +
+            `<button class="resolve">${esc(t("Resolve"))}</button></div>` +
+            (x.anchor ? `<div class="about">${aboutHtml(x.anchor)}</div>` : "") +
+            x.messages.map((m) => `<div class="message ${esc(m.from)}"><i>${esc(m.from === "agent" ? t("Agent") : t("You"))}</i><div>${esc(m.text)}</div></div>`).join("") +
+            (on && mine && !x.sent && cm.listening ? `<div class="actions"><button class="primary send">${esc(t("Send to Agent"))}</button></div>` : "") +
+            (on ? composer("reply:" + x.id, t("Reply")) : "") +
+            `</div>`
+          );
+        })
+        .join("");
+    if (focused) {
+      const again = panel.querySelector(`.composer[data-key="${CSS.escape(focused)}"] textarea`);
+      if (again) {
+        again.focus();
+        again.setSelectionRange(caret[0], caret[1]);
+      }
+    }
+  }
+
+  async function act(body) {
+    await api.comment(id, body);
+    await loadComments();
+  }
+
+  /** Saves what was written. `send`: hands it to the agent, with the notes added before it; not: it stays a note. */
+  async function submit(key, send) {
+    const text = (cm.texts[key] ?? "").trim();
+    if (!text) return;
+    cm.texts[key] = "";
+    const draft = cm.draft;
+    try {
+      if (key === "new") {
+        cm.draft = null;
+        await act({ op: "new", anchor: draft ? { step: draft.step, run: draft.run } : null, text, send });
+      } else await act({ op: "say", id: key.slice("reply:".length), text, send });
+    } catch (e) {
+      cm.texts[key] = text;
+      if (key === "new") cm.draft = draft;
+      console.error(e);
+      renderPanel();
+    }
+  }
+
+  panel.addEventListener("input", (e) => {
+    const k = e.target.closest(".composer")?.dataset.key;
+    if (k) cm.texts[k] = e.target.value;
+  });
+  panel.addEventListener("keydown", (e) => {
+    const k = e.target.closest(".composer")?.dataset.key;
+    if (k && e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit(k, cm.listening);
+  });
+  panel.addEventListener("click", (e) => {
+    const thread = e.target.closest(".thread")?.dataset.thread;
+    if (e.target.closest(".submit")) return void submit(e.target.closest(".composer").dataset.key, true);
+    if (e.target.closest(".note")) return void submit(e.target.closest(".composer").dataset.key, false);
+    if (e.target.closest(".drop")) {
+      cm.draft = null;
+      return void renderPanel();
+    }
+    if (e.target.closest(".resolve")) return void act({ op: "resolve", id: thread });
+    if (e.target.closest(".send")) return void act({ op: "send", id: thread });
+    if (thread && thread !== cm.active) {
+      cm.active = thread;
+      const a = cm.threads.find((x) => x.id === thread)?.anchor;
+      renderPanel();
+      if (a && v.steps.some((x) => x.id === a.step)) select(a.step);
+    }
+  });
+
+  async function loadComments() {
+    try {
+      const r = await api.comments(id);
+      const sig = JSON.stringify(r);
+      if (sig === cm.seen) return;
+      cm.seen = sig;
+      cm.threads = r.threads;
+      cm.listening = r.listening;
+      if (cm.active && !openThreads().some((x) => x.id === cm.active)) cm.active = null;
+      renderPanel();
+      renderTop();
+    } catch {
+      // The server is away for a moment: what was last read stays.
+    }
+  }
 
   let lastRev = "";
   const refresh = async (force) => {
@@ -498,10 +679,13 @@ async function showPipeline(id) {
     }
   };
   if (!sel) sel = v.steps.find((s) => ["failed", "waiting", "running", "interrupted"].includes(v.run?.steps?.[s.id]?.state))?.id ?? v.steps[0]?.id ?? null;
-  await refresh(true);
+  if (innerWidth >= 1500) page.classList.add("panel-open");
+  renderPanel();
+  await Promise.all([refresh(true), loadComments()]);
   for (;;) {
     await sleep(document.hidden ? 4000 : 1500);
     await refresh(false);
+    await loadComments();
   }
 }
 
