@@ -1,0 +1,479 @@
+// The page: `/` lists the opened pipelines, `/p/<id>` shows one: its steps as
+// a graph colored by their state in a run (the latest unless another is
+// chosen), and under it the chosen step: what it is, its log, the files it
+// made (pictures, sound, video, text and tables shown), and, when it is a
+// question for a person that waits, a form to answer it. It follows the files:
+// a running pipeline's graph moves as its steps end.
+
+// ---- words ----
+
+const zh = {
+  "Pipelines": "流水线",
+  "No pipeline is open. An agent opens one with the tome-pipeline skill.": "还没有打开的流水线。让 agent 用 tome-pipeline skill 打开一条。",
+  "{n} steps": "{n} 步",
+  "never run": "还没跑过",
+  "All pipelines": "全部流水线",
+  "This pipeline was removed.": "这条流水线被删掉了。",
+  "The pipeline could not be opened.": "流水线打不开。",
+  "{n} problems in pipeline.json": "pipeline.json 里有 {n} 个问题",
+  "Not written yet": "还没实装",
+  "Done": "做完",
+  "Unchanged, taken": "输入没变，跳过",
+  "Running": "运行中",
+  "Failed": "失败",
+  "Waits for you": "等人",
+  "No steps yet.": "还没有步骤。",
+  "not written yet": "未实装",
+  "not run yet": "还没跑",
+  "waiting for {s}": "等 {s}",
+  "not reached": "还没轮到",
+  "running": "运行中",
+  "try {n}": "第 {n} 次",
+  "unchanged · {run}": "跳过 · 用 {run} 的",
+  "waits for you": "等你回答",
+  "interrupted": "中断了",
+  "stopped": "停了",
+  "not in this run": "这次没跑",
+  "done": "做完",
+  "failed": "失败",
+  "waiting": "等人",
+  "Run": "运行",
+  "Kind": "种类",
+  "Script": "脚本",
+  "Prompt": "提示词",
+  "Question": "问题",
+  "Needs": "需要",
+  "Makes": "产出",
+  "Retries": "重试",
+  "Time limit": "超时",
+  "Always runs": "每次都跑",
+  "yes (it reads the outside world)": "是（读外面的东西）",
+  "Log": "日志",
+  "No log.": "没有日志。",
+  "Files": "产出的文件",
+  "No files.": "没有文件。",
+  "Select a step.": "点一个步骤。",
+  "Not written yet: {file}": "还没写：{file}",
+  "After fixing it, carry the run on:": "修好之后接着跑：",
+  "Taken from run {run}: its inputs did not change.": "输入没变，直接用了 {run} 的结果。",
+  "Answer": "回答",
+  "Or write your own:": "或者自己写：",
+  "Send answer": "回答",
+  "Sending…": "正在发送…",
+  "Answered. The run goes on.": "回答了，流水线接着跑。",
+  "Could not answer: {detail}": "回答失败：{detail}",
+  "Running now (pid {pid})": "正在运行（pid {pid}）",
+  "beginning cut": "前面省略了",
+  "Download": "下载",
+  "(none)": "（无）",
+};
+const ja = {
+  "Pipelines": "パイプライン",
+  "No pipeline is open. An agent opens one with the tome-pipeline skill.": "開いているパイプラインはありません。agent が tome-pipeline skill で開きます。",
+  "{n} steps": "{n} ステップ",
+  "never run": "まだ実行していません",
+  "All pipelines": "すべてのパイプライン",
+  "This pipeline was removed.": "このパイプラインは削除されました。",
+  "The pipeline could not be opened.": "パイプラインを開けません。",
+  "{n} problems in pipeline.json": "pipeline.json に問題が {n} 件",
+  "Not written yet": "未実装",
+  "Done": "完了",
+  "Unchanged, taken": "入力が同じなのでスキップ",
+  "Running": "実行中",
+  "Failed": "失敗",
+  "Waits for you": "人を待っている",
+  "No steps yet.": "ステップはまだありません。",
+  "not written yet": "未実装",
+  "not run yet": "まだ実行していません",
+  "waiting for {s}": "{s} 待ち",
+  "not reached": "まだ",
+  "running": "実行中",
+  "try {n}": "{n} 回目",
+  "unchanged · {run}": "スキップ · {run} のもの",
+  "waits for you": "回答待ち",
+  "interrupted": "中断",
+  "stopped": "停止",
+  "not in this run": "今回は対象外",
+  "done": "完了",
+  "failed": "失敗",
+  "waiting": "回答待ち",
+  "Run": "実行",
+  "Kind": "種類",
+  "Script": "スクリプト",
+  "Prompt": "プロンプト",
+  "Question": "質問",
+  "Needs": "前提",
+  "Makes": "出力",
+  "Retries": "リトライ",
+  "Time limit": "タイムアウト",
+  "Always runs": "毎回実行",
+  "yes (it reads the outside world)": "はい（外部を読む）",
+  "Log": "ログ",
+  "No log.": "ログはありません。",
+  "Files": "出力ファイル",
+  "No files.": "ファイルはありません。",
+  "Select a step.": "ステップを選んでください。",
+  "Not written yet: {file}": "未作成：{file}",
+  "After fixing it, carry the run on:": "直したら続きから実行：",
+  "Taken from run {run}: its inputs did not change.": "入力が同じなので {run} の結果を使いました。",
+  "Answer": "回答",
+  "Or write your own:": "または自分で書く：",
+  "Send answer": "回答する",
+  "Sending…": "送信中…",
+  "Answered. The run goes on.": "回答しました。続きを実行します。",
+  "Could not answer: {detail}": "回答できませんでした: {detail}",
+  "Running now (pid {pid})": "実行中（pid {pid}）",
+  "beginning cut": "前半は省略",
+  "Download": "ダウンロード",
+  "(none)": "（なし）",
+};
+export const tables = { zh, ja };
+const language = navigator.language || "en";
+const lang = language.startsWith("zh") ? "zh" : language.startsWith("ja") ? "ja" : "en";
+function t(text, values = {}) {
+  let out = tables[lang]?.[text] ?? text;
+  for (const [k, v] of Object.entries(values)) out = out.replace(`{${k}}`, String(v));
+  return out;
+}
+
+// ---- the server ----
+
+const WRITE = { "content-type": "application/json", "x-tome-pipeline": "1" };
+async function call(url, init) {
+  const res = await fetch(url, init);
+  let body = null;
+  try {
+    body = await res.json();
+  } catch {
+    body = null;
+  }
+  if (!res.ok) {
+    const e = new Error(body?.detail || `HTTP ${res.status}`);
+    e.code = body?.code || String(res.status);
+    throw e;
+  }
+  return body;
+}
+const q = (params) => new URLSearchParams(Object.entries(params).filter(([, v]) => v !== null && v !== undefined)).toString();
+const api = {
+  pipelines: () => call("/api/pipelines"),
+  pipeline: (id, run) => call("/api/pipeline?" + q({ id, run })),
+  step: (id, run, step) => call("/api/step?" + q({ id, run, step })),
+  answer: (id, body) => call("/api/answer?" + q({ id }), { method: "POST", headers: WRITE, body: JSON.stringify(body) }),
+};
+const fileUrl = (id, run, step, file, params = {}) => `/o/${id}/${encodeURIComponent(run)}/${encodeURIComponent(step)}/${file.split("/").map(encodeURIComponent).join("/")}${Object.keys(params).length ? "?" + q(params) : ""}`;
+
+// ---- small things ----
+
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+const root = document.getElementById("root");
+const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
+const el = (html) => {
+  const d = document.createElement("template");
+  d.innerHTML = html.trim();
+  return d.content.firstElementChild;
+};
+const gone = (text) => (root.innerHTML = `<div class="center"><div>${esc(text)}</div><a href="/">${esc(t("All pipelines"))}</a></div>`);
+const shortRun = (r) => (r ? r.replace(/^\d{4}-(\d\d)-(\d\d)_(\d\d)(\d\d)(\d\d)(-\d+)?$/, "$1-$2 $3:$4") : "");
+const dur = (ms) => (ms >= 60000 ? `${Math.floor(ms / 60000)}m${String(Math.round((ms % 60000) / 1000)).padStart(2, "0")}s` : `${(ms / 1000).toFixed(ms < 10000 ? 1 : 0)}s`);
+const size = (n) => (n >= 1 << 20 ? `${(n / (1 << 20)).toFixed(1)} MB` : n >= 1024 ? `${Math.round(n / 1024)} KB` : `${n} B`);
+const ext = (f) => (f.match(/\.([a-z0-9]+)$/i)?.[1] ?? "").toLowerCase();
+
+// ---- the list ----
+
+async function showList() {
+  document.title = t("Pipelines");
+  let list;
+  try {
+    list = (await api.pipelines()).pipelines;
+  } catch {
+    return gone(t("The pipeline could not be opened."));
+  }
+  root.innerHTML = `<div class="list"><h1>${esc(t("Pipelines"))}</h1>${
+    list.length
+      ? list
+          .map(
+            (p) => `<a class="list-row" href="/p/${p.id}"><b>${esc(p.title)}</b><span class="mono dim">${esc(p.root)}</span><span class="dim" style="font-size:12px">${esc(t("{n} steps", { n: p.steps }))} · ${
+              p.last ? `<span class="dot ${esc(p.last.state)}"></span>${esc(shortRun(p.last.run))} ${esc(t(p.last.state))}` : esc(t("never run"))
+            }</span></a>`,
+          )
+          .join("")
+      : `<p class="dim">${esc(t("No pipeline is open. An agent opens one with the tome-pipeline skill."))}</p>`
+  }</div>`;
+}
+
+// ---- one pipeline ----
+
+const COL = 212;
+const ROW = 92;
+const NODE_W = 176;
+const NODE_H = 72;
+
+function stepLine(v, s) {
+  const st = v.run?.steps?.[s.id];
+  if (!s.implemented && (!st || st.state === "pending" || st.state === "failed")) return { cls: "plan", text: t("not written yet") };
+  if (!st) return { cls: "", text: t("not run yet") };
+  switch (st.state) {
+    case "pending": {
+      const before = s.needs.find((n) => !["done", "skipped"].includes(v.run.steps[n]?.state));
+      return { cls: "", text: before ? t("waiting for {s}", { s: v.steps.find((x) => x.id === before)?.title ?? before }) : t("not reached") };
+    }
+    case "running":
+      return { cls: "running", text: `${t("running")} · ${dur(Date.now() - Date.parse(st.startedAt))}${st.tries > 1 ? ` · ${t("try {n}", { n: st.tries })}` : ""}` };
+    case "done":
+      return { cls: "done", text: st.ms !== undefined ? dur(st.ms) : t("done") };
+    case "skipped":
+      return { cls: "skipped", text: t("unchanged · {run}", { run: shortRun(st.from) }) };
+    case "failed":
+      return { cls: "failed", text: st.error ?? t("failed") };
+    case "waiting":
+      return { cls: "waiting", text: t("waits for you") };
+    case "interrupted":
+      return { cls: "interrupted", text: t("interrupted") };
+    case "off":
+      return { cls: "", text: t("not in this run") };
+    default:
+      return { cls: "", text: st.state };
+  }
+}
+
+function graphHtml(v, sel) {
+  if (!v.steps.length) return `<p class="empty" style="margin:12px 16px">${esc(t("No steps yet."))}</p>`;
+  const cols = Math.max(...v.steps.map((s) => s.at[0])) + 1;
+  const rows = Math.max(...v.steps.map((s) => s.at[1])) + 1;
+  const w = (cols - 1) * COL + NODE_W;
+  const h = (rows - 1) * ROW + NODE_H;
+  const pos = Object.fromEntries(v.steps.map((s) => [s.id, [s.at[0] * COL, s.at[1] * ROW]]));
+  const edges = [];
+  for (const s of v.steps) {
+    for (const n of s.needs) {
+      const [x1, y1] = [pos[n][0] + NODE_W, pos[n][1] + NODE_H / 2];
+      const [x2, y2] = [pos[s.id][0], pos[s.id][1] + NODE_H / 2];
+      const k = Math.max(24, (x2 - x1) / 2);
+      const ok = ["done", "skipped"].includes(v.run?.steps?.[n]?.state);
+      edges.push(`<path class="${ok ? "ok" : ""}" d="M${x1} ${y1} C${x1 + k} ${y1} ${x2 - k} ${y2} ${x2 - 3} ${y2}" marker-end="url(#ah${ok ? "ok" : ""})"/>`);
+    }
+  }
+  const nodes = v.steps
+    .map((s) => {
+      const line = stepLine(v, s);
+      return `<button class="node ${line.cls}${s.id === sel ? " sel" : ""}" data-step="${esc(s.id)}" style="left:${pos[s.id][0]}px;top:${pos[s.id][1]}px"><span class="k">${esc(s.kind)}</span><div class="t">${esc(s.title)} ${s.title !== s.id ? `<span class="mono">${esc(s.id)}</span>` : ""}</div><div class="s" title="${esc(line.text)}">${esc(line.text)}</div></button>`;
+    })
+    .join("");
+  const marker = (id, color) => `<marker id="${id}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" style="fill:${color};stroke:none"/></marker>`;
+  return `<div class="graph" style="width:${w}px;height:${h}px"><svg width="${w}" height="${h}" aria-hidden="true"><defs>${marker("ah", "var(--edge)")}${marker("ahok", "var(--ok)")}</defs>${edges.join("")}</svg>${nodes}</div>`;
+}
+
+function defHtml(s) {
+  const rows = [[t("Kind"), `<code>${esc(s.kind)}</code>`]];
+  if (s.kind === "sh") rows.push([t("Script"), `<code>${esc(s.run)}</code>`]);
+  if (s.kind === "agent") rows.push([t("Prompt"), `<code>${esc(s.prompt)}</code>${s.model ? ` · <code>${esc(s.model)}</code>` : ""}`]);
+  if (s.kind === "human") rows.push([t("Question"), esc(s.ask)]);
+  rows.push([t("Needs"), s.needs.length ? s.needs.map((n) => `<code>${esc(n)}</code>`).join(" ") : esc(t("(none)"))]);
+  rows.push([t("Makes"), s.out.length ? s.out.map((n) => `<code>${esc(n)}</code>`).join(" ") : esc(t("(none)"))]);
+  if (s.retry) rows.push([t("Retries"), String(s.retry)]);
+  if (s.timeoutMs) rows.push([t("Time limit"), dur(s.timeoutMs)]);
+  if (s.fresh) rows.push([t("Always runs"), esc(t("yes (it reads the outside world)"))]);
+  return `<dl class="kv">${rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join("")}</dl>`;
+}
+
+/** A CSV or TSV's first rows as a table. */
+function tableHtml(text, sep) {
+  const rows = [];
+  for (const line of text.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    const cells = [];
+    let cur = "";
+    let quoted = false;
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i];
+      if (quoted) {
+        if (c === '"' && line[i + 1] === '"') (cur += '"'), i++;
+        else if (c === '"') quoted = false;
+        else cur += c;
+      } else if (c === '"' && cur === "") quoted = true;
+      else if (c === sep) cells.push(cur), (cur = "");
+      else cur += c;
+    }
+    cells.push(cur);
+    rows.push(cells);
+    if (rows.length > 60) break;
+  }
+  if (!rows.length) return "";
+  const [head, ...body] = rows;
+  return `<table><thead><tr>${head.map((c) => `<th>${esc(c)}</th>`).join("")}</tr></thead><tbody>${body.map((r) => `<tr>${r.map((c) => `<td>${esc(c)}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+}
+
+async function previewInto(box, url, file, bytes) {
+  const e = ext(file);
+  if (["png", "jpg", "jpeg", "gif", "webp", "svg"].includes(e)) box.innerHTML = `<img src="${esc(url)}" alt="${esc(file)}">`;
+  else if (["mp3", "wav", "m4a", "ogg"].includes(e)) box.innerHTML = `<audio controls preload="metadata" src="${esc(url)}"></audio>`;
+  else if (["mp4", "webm", "mov"].includes(e)) box.innerHTML = `<video controls preload="metadata" src="${esc(url)}"></video>`;
+  else if (/^(txt|md|json|jsonl|ndjson|csv|tsv|srt|vtt|log|ya?ml|toml|xml|sql|html?|css|js|mjs|py|sh)$/.test(e) && bytes <= 512 * 1024) {
+    try {
+      const res = await fetch(url);
+      let text = await res.text();
+      if (e === "csv" || e === "tsv") {
+        box.innerHTML = tableHtml(text, e === "csv" ? "," : "\t");
+        return;
+      }
+      if (e === "json") {
+        try {
+          text = JSON.stringify(JSON.parse(text), null, 2);
+        } catch {
+          // as it is
+        }
+      }
+      box.innerHTML = `<pre>${esc(text.length > 6000 ? text.slice(0, 6000) + "\n…" : text)}</pre>`;
+    } catch {
+      box.innerHTML = "";
+    }
+  }
+}
+
+async function showPipeline(id) {
+  let v;
+  try {
+    v = await api.pipeline(id, null);
+  } catch (e) {
+    return gone(e.code === "NotFound" ? t("This pipeline was removed.") : t("The pipeline could not be opened."));
+  }
+  let sel = new URLSearchParams(location.search).get("step");
+  let chosenRun = null; // null: follow the latest
+  let lowerKey = "";
+  let stepData = null;
+
+  root.innerHTML = `<div class="pipe">
+    <header class="bar"><a href="/" aria-label="${esc(t("All pipelines"))}">←</a><span class="name"></span><span class="path mono"></span><span class="grow"></span><span class="warn"></span><span class="busy dim"></span><div class="runs"></div></header>
+    <div class="legend"><span class="plan">${esc(t("Not written yet"))}</span><span class="done">${esc(t("Done"))}</span><span class="skipped">${esc(t("Unchanged, taken"))}</span><span class="running">${esc(t("Running"))}</span><span class="failed">${esc(t("Failed"))}</span><span class="waiting">${esc(t("Waits for you"))}</span></div>
+    <div class="graph-wrap"></div>
+    <div class="lower"><section class="pane left"></section><section class="pane right"></section></div>
+  </div>`;
+  const $ = (s) => root.querySelector(s);
+
+  const renderTop = () => {
+    document.title = v.title;
+    $(".name").textContent = v.title;
+    $(".path").textContent = v.root;
+    $(".warn").textContent = v.problems.length ? t("{n} problems in pipeline.json", { n: v.problems.length }) : "";
+    $(".warn").title = v.problems.join("\n");
+    $(".busy").textContent = v.busy ? t("Running now (pid {pid})", { pid: v.busy.pid }) : "";
+    const runName = v.run?.run ?? null;
+    $(".runs").innerHTML = v.runs.map((r) => `<button data-run="${esc(r.run)}" class="${r.run === runName ? "on" : ""}"><span class="dot ${esc(r.state ?? "")}"></span>${esc(shortRun(r.run))}${r.state && r.state !== "done" ? ` ${esc(t(r.state))}` : ""}</button>`).join("");
+    const wrap = $(".graph-wrap");
+    const sx = wrap.scrollLeft;
+    wrap.innerHTML = graphHtml(v, sel);
+    wrap.scrollLeft = sx;
+  };
+
+  const renderLower = async (force) => {
+    const left = $(".left");
+    const right = $(".right");
+    const s = v.steps.find((x) => x.id === sel);
+    if (!s) {
+      left.innerHTML = `<p class="empty">${esc(t("Select a step."))}</p>`;
+      right.innerHTML = "";
+      lowerKey = "";
+      return;
+    }
+    const st = v.run?.steps?.[s.id] ?? null;
+    const runName = v.run?.run ?? null;
+    const key = JSON.stringify([s, st, runName]);
+    if (key === lowerKey && !force && st?.state !== "running") return;
+    const keepAnswer = key === lowerKey && left.querySelector(".answer");
+    lowerKey = key;
+    stepData = runName && st && st.state !== "off" ? await api.step(id, runName, s.id).catch(() => null) : null;
+    const line = stepLine(v, s);
+    let hint = "";
+    if (!s.implemented) hint = `<div class="hint">${esc(t("Not written yet: {file}", { file: s.kind === "sh" ? s.run.split(/\s/)[0] : s.prompt }))}</div>`;
+    else if (st && ["failed", "interrupted"].includes(st.state)) hint = `<div class="hint">${esc(t("After fixing it, carry the run on:"))}<br><code>pipeline.mjs resume "${esc(v.root)}"</code></div>`;
+    else if (st?.state === "skipped") hint = `<div class="hint">${esc(t("Taken from run {run}: its inputs did not change.", { run: st.from }))}</div>`;
+    const log = stepData?.log;
+    const logHtml = log && log.text ? `<pre class="log">${log.cut ? `<span style="color:var(--log-dim)">… ${esc(t("beginning cut"))}</span>\n` : ""}${esc(log.text)}</pre>` : `<p class="empty">${esc(t("No log."))}</p>`;
+    const form = s.kind === "human" && st?.state === "waiting" ? answerHtml(s) : "";
+    if (keepAnswer && form) {
+      left.querySelector(".log-box").innerHTML = logHtml;
+    } else {
+      left.innerHTML = `<div class="headline"><h2>${esc(s.title)}${s.title !== s.id ? ` <span class="mono dim">${esc(s.id)}</span>` : ""}</h2><span class="st ${esc(line.cls)}">${esc(line.text)}</span></div>${form}${hint}${defHtml(s)}${s.kind !== "human" ? `<h3>${esc(t("Log"))}</h3><div class="log-box">${logHtml}</div>` : ""}`;
+      const pre = left.querySelector("pre.log");
+      if (pre) pre.scrollTop = pre.scrollHeight;
+      if (form) wireAnswer(left, s, runName);
+    }
+    const files = (stepData?.files ?? []).filter((f) => !f.file.startsWith("_"));
+    right.innerHTML = `<h3 style="margin-top:0">${esc(t("Files"))}</h3>${
+      files.length
+        ? `<ul class="files">${files.map((f) => `<li><div class="row"><a href="${esc(fileUrl(id, runName, s.id, f.file))}" target="_blank" rel="noopener">${esc(f.file)}</a><span>${esc(size(f.size))} · <a href="${esc(fileUrl(id, runName, s.id, f.file, { download: 1 }))}">${esc(t("Download"))}</a></span></div><div class="preview" data-file="${esc(f.file)}" data-size="${f.size}"></div></li>`).join("")}</ul>`
+        : `<p class="empty">${esc(t("No files."))}</p>`
+    }${stepData?.prompt ? `<h3>${esc(t("Prompt"))}</h3><a class="mono" href="${esc(fileUrl(id, runName, s.id, "_prompt.md"))}" target="_blank" rel="noopener">_prompt.md</a>` : ""}`;
+    for (const box of right.querySelectorAll(".preview")) previewInto(box, fileUrl(id, runName, s.id, box.dataset.file), box.dataset.file, Number(box.dataset.size));
+  };
+
+  const answerHtml = (s) => {
+    const choices = s.choicesList ?? [];
+    return `<form class="answer" style="margin-top:12px"><p style="margin:0 0 8px;font-weight:600">${esc(s.ask)}</p>${choices.map((c, i) => `<label class="choice"><input type="radio" name="c" value="${esc(c)}"> <span class="mono dim">${i + 1}</span> <span>${esc(c)}</span></label>`).join("")}${choices.length ? `<div class="dim" style="font-size:12px;margin:6px 0 4px">${esc(t("Or write your own:"))}</div>` : ""}<textarea name="text" aria-label="${esc(t("Answer"))}"></textarea><div class="go"><button class="primary" type="submit">${esc(t("Send answer"))}</button><span class="msg dim" style="font-size:12px"></span></div></form>`;
+  };
+  const wireAnswer = (left, s, runName) => {
+    const form = left.querySelector(".answer");
+    form.addEventListener("change", (e) => {
+      if (e.target.name === "c") form.elements.text.value = e.target.value;
+    });
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const text = form.elements.text.value.trim();
+      if (!text) return form.elements.text.focus();
+      const button = form.querySelector("button");
+      const msg = form.querySelector(".msg");
+      button.disabled = true;
+      msg.textContent = t("Sending…");
+      try {
+        await api.answer(id, { step: s.id, text, run: runName });
+        msg.textContent = t("Answered. The run goes on.");
+      } catch (err) {
+        button.disabled = false;
+        msg.textContent = t("Could not answer: {detail}", { detail: err.message });
+      }
+    });
+  };
+
+  root.addEventListener("click", (e) => {
+    const node = e.target.closest(".node");
+    if (node) {
+      sel = node.dataset.step;
+      history.replaceState(null, "", `?step=${encodeURIComponent(sel)}`);
+      renderTop();
+      renderLower(true);
+      return;
+    }
+    const r = e.target.closest(".runs button");
+    if (r) {
+      chosenRun = r.dataset.run === v.runs[0]?.run ? null : r.dataset.run;
+      refresh(true);
+    }
+  });
+
+  let lastRev = "";
+  const refresh = async (force) => {
+    try {
+      v = await api.pipeline(id, chosenRun);
+    } catch (e) {
+      if (e.code === "NotFound") return gone(t("This pipeline was removed."));
+      return;
+    }
+    const running = v.run?.state === "running";
+    if (v.rev !== lastRev || force || running) {
+      lastRev = v.rev;
+      renderTop();
+      await renderLower(force);
+    }
+  };
+  if (!sel) sel = v.steps.find((s) => ["failed", "waiting", "running", "interrupted"].includes(v.run?.steps?.[s.id]?.state))?.id ?? v.steps[0]?.id ?? null;
+  await refresh(true);
+  for (;;) {
+    await sleep(document.hidden ? 4000 : 1500);
+    await refresh(false);
+  }
+}
+
+const m = location.pathname.match(/^\/p\/([0-9a-f]{16})\/?$/);
+if (m) showPipeline(m[1]);
+else showList();

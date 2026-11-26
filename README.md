@@ -10,6 +10,7 @@ Skills for coding agents, made for Agent Tome and usable without it. Each skill 
 | `tome-md` | Markdown: read a file rendered in the browser, select a passage to comment on or ask about, and the agent answers in the thread and edits the file |
 | `tome-design` | A design: artboards written as plain HTML, side by side on a canvas in the browser; comment on an element or an area, and the agent changes the files and replies |
 | `tome-slides` | A slide deck: one plain HTML file per slide, the slides with their speaker notes in the browser; present full screen with a speaker view, save a PDF or a PowerPoint file, comment on an element or an area, and the agent changes the files and replies |
+| `tome-pipeline` | A pipeline: a folder of steps (scripts, prompts for an agent, questions for a person) with what each needs and makes; run it on a schedule or by hand, steps whose inputs did not change taken from the last run, a failed or waiting run carried on; a page draws the steps colored by their state, with each one's log and files |
 
 ## Install
 
@@ -20,9 +21,10 @@ ln -s "$PWD/skills/tome-board" ~/.claude/skills/tome-board
 ln -s "$PWD/skills/tome-md" ~/.claude/skills/tome-md
 ln -s "$PWD/skills/tome-design" ~/.claude/skills/tome-design
 ln -s "$PWD/skills/tome-slides" ~/.claude/skills/tome-slides
+ln -s "$PWD/skills/tome-pipeline" ~/.claude/skills/tome-pipeline
 ```
 
-`tome-md`, `tome-design` and `tome-slides` need no build: once linked, they work. The page of `tome-board` is built once (Node 20+):
+`tome-md`, `tome-design`, `tome-slides` and `tome-pipeline` need no build: once linked, they work. The page of `tome-board` is built once (Node 20+):
 
 ```sh
 cd apps/board && npm ci --ignore-scripts && node build.mjs
@@ -133,6 +135,29 @@ node skills/tome-slides/scripts/slides.mjs comment-reply <id> "…"   # replies 
 - **One process per computer.** It listens on 127.0.0.1 only (4770, or the next free port up). Its own notes are in `~/.tome-slides/` (`$TOME_SLIDES_HOME` moves it): the opened decks, the running process (`servers/main.json`, `kind: "slides"`), the comments.
 - **Not the claude-slides format** (`project/deck.json` with a closed subset of inline styles): a tome-slides slide is an ordinary HTML page, any CSS, and opens on its own. The PowerPoint file it makes is pictures, not editable text.
 - **Tests**: `cd apps/slides && npm test`.
+
+## tome-pipeline: a pipeline of steps
+
+`scripts/pipeline.mjs` is the command, the runner and the local server (Node 20+, no dependencies). `scripts/page/` is the page: plain JavaScript, no build. A pipeline is a folder: `pipeline.json` lists the steps with what each needs and makes, and each step is a script or a prompt in `steps/`. Every run is a folder `runs/<time>/` with each step's log and files.
+
+```sh
+node skills/tome-pipeline/scripts/pipeline.mjs new "Daily news"          # makes pipelines/Daily news/ (pipeline.json, steps/, a .gitignore for runs/), opens it; prints {"url": "http://127.0.0.1:4780/p/<id>", …}
+node skills/tome-pipeline/scripts/pipeline.mjs check "pipelines/Daily news"   # what is wrong in pipeline.json, and which steps are not written yet
+node skills/tome-pipeline/scripts/pipeline.mjs run "pipelines/Daily news"     # one run; --only <step>: that step alone; --all: take nothing from earlier runs
+node skills/tome-pipeline/scripts/pipeline.mjs resume "pipelines/Daily news"  # carry the latest run on; --from <step>: that step and the ones after it again
+node skills/tome-pipeline/scripts/pipeline.mjs answer "pipelines/Daily news" pick "…" --resume   # answer a question that waits, and carry the run on
+node skills/tome-pipeline/scripts/pipeline.mjs status "pipelines/Daily news"
+node skills/tome-pipeline/scripts/pipeline.mjs schedule "pipelines/Daily news" --cron "0 6 * * *"   # prints the command a scheduled job runs
+node skills/tome-pipeline/scripts/pipeline.mjs open | list | close <folder> | stop
+```
+
+- **Three kinds of step**: `sh` runs a script of the folder (or a shell command) in its own folder of the run, with the folders of the steps it needs in `$IN_<ID>`; `agent` hands a Markdown prompt to `claude -p` (or another command, such as `codex exec`) with where its inputs are and which files to write; `human` asks a person a question, its choices the lines of a file a step before it made.
+- **A run** goes in the order of the steps' needs, side by side where it can (`parallel`, 4 by default), with `retry` and `timeout` per step. A step whose definition, script or prompt, and inputs did not change is taken from an earlier run (its files linked in) instead of run again; `fresh: true` for a step that reads the outside world.
+- **How it ends**: one last line, `DONE …`, `FAIL … · <step> · <why> · log <path>` or `WAIT … · <step> waits for a person`, and the exit code 0, 1 or 3 (4: the pipeline runs already). `resume` carries a failed, waiting or interrupted run on in the same folder.
+- **Not a daemon, not a scheduler**: the process carries one run and ends. Bot Tome, launchd, cron or CI starts it; whoever started it reads the exit code and the last line.
+- **The page**: the steps as a graph colored by their state in a run (dashed: not written yet), a run picked at the top. A click on a step shows its definition, its log, and its files: pictures, sound and video play, text shows, CSV and TSV as a table. A question that waits can be answered there, and the run goes on.
+- **One process per computer** for the page. It listens on 127.0.0.1 only (4780, or the next free port up). Its own notes are in `~/.tome-pipeline/` (`$TOME_PIPELINE_HOME` moves it): the opened pipelines and the running process (`servers/main.json`, `kind: "pipeline"`).
+- **Tests**: `cd apps/pipeline && npm test`.
 
 ## License
 

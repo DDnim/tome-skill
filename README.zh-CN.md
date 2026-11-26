@@ -10,6 +10,7 @@ Agent Tome 的 skill。每个 skill 是 `skills/<名字>/`：`SKILL.md` 告诉 a
 | `tome-md` | Markdown：在浏览器里看渲染好的文档，选中一段评论或提问，agent 在评论下面回答、改文件 |
 | `tome-design` | 设计稿：画板写成普通的 HTML，在浏览器里的画布上并排看；点一个元素或框一块区域评论，agent 改文件、在评论下面回答 |
 | `tome-slides` | 幻灯片：一页一个普通的 HTML 文件，在浏览器里看幻灯片和演讲备注；全屏演示、演讲者视图、存成 PDF 或 PowerPoint；点一个元素或框一块区域评论，agent 改文件、在评论下面回答 |
+| `tome-pipeline` | 流水线：一个文件夹里的几步（脚本、给 agent 的提示词、问人的问题），每步写明需要什么、产出什么；定时或手动跑，输入没变的步骤直接用上次的结果，失败或等人的那次运行能接着跑；页面上按状态给每一步上色，看每步的日志和产出 |
 
 ## 安装
 
@@ -20,9 +21,10 @@ ln -s "$PWD/skills/tome-board" ~/.claude/skills/tome-board
 ln -s "$PWD/skills/tome-md" ~/.claude/skills/tome-md
 ln -s "$PWD/skills/tome-design" ~/.claude/skills/tome-design
 ln -s "$PWD/skills/tome-slides" ~/.claude/skills/tome-slides
+ln -s "$PWD/skills/tome-pipeline" ~/.claude/skills/tome-pipeline
 ```
 
-`tome-md`、`tome-design` 和 `tome-slides` 不用构建，链接上就能用。`tome-board` 的页面要先构建一次（Node 20+）：
+`tome-md`、`tome-design`、`tome-slides` 和 `tome-pipeline` 不用构建，链接上就能用。`tome-board` 的页面要先构建一次（Node 20+）：
 
 ```sh
 cd apps/board && npm ci --ignore-scripts && node build.mjs
@@ -133,6 +135,29 @@ node skills/tome-slides/scripts/slides.mjs comment-reply <id> "…"  # 回复（
 - **一台电脑一个进程。** 只听 127.0.0.1（4770，被占了就往上找）。自己的记录都在 `~/.tome-slides/`（`$TOME_SLIDES_HOME` 可以改）：打开过的幻灯片、在跑的进程（`servers/main.json`，`kind: "slides"`）、评论。
 - **不是 claude-slides 的格式**（`project/deck.json`，只能用一部分行内样式）：tome-slides 的每一页是普通的 HTML，CSS 随便写，单独也能打开。出的 PowerPoint 是图片，文字不能编辑。
 - **测试**：`cd apps/slides && npm test`。
+
+## tome-pipeline：流水线
+
+`scripts/pipeline.mjs` 既是命令、运行器，也是本机的服务（Node 20+，没有依赖）。`scripts/page/` 是页面：普通的 JavaScript，不用构建。一条流水线是一个文件夹：`pipeline.json` 列出每一步和它需要什么、产出什么，每一步是 `steps/` 里的一个脚本或提示词。每次运行是一个文件夹 `runs/<时间>/`，放着每一步的日志和产出。
+
+```sh
+node skills/tome-pipeline/scripts/pipeline.mjs new "每日新闻"           # 建 pipelines/每日新闻/（pipeline.json、steps/、忽略 runs/ 的 .gitignore），打开它；打印 {"url": "http://127.0.0.1:4780/p/<id>", …}
+node skills/tome-pipeline/scripts/pipeline.mjs check pipelines/每日新闻   # pipeline.json 里的问题，和哪些步骤还没写
+node skills/tome-pipeline/scripts/pipeline.mjs run pipelines/每日新闻     # 跑一次；--only <步骤>：只跑这一步；--all：不用以前的结果
+node skills/tome-pipeline/scripts/pipeline.mjs resume pipelines/每日新闻  # 最近一次接着跑；--from <步骤>：这一步和后面的重跑
+node skills/tome-pipeline/scripts/pipeline.mjs answer pipelines/每日新闻 pick "…" --resume   # 回答等着的问题，然后接着跑
+node skills/tome-pipeline/scripts/pipeline.mjs status pipelines/每日新闻
+node skills/tome-pipeline/scripts/pipeline.mjs schedule pipelines/每日新闻 --cron "0 6 * * *"   # 打印定时任务要执行的命令
+node skills/tome-pipeline/scripts/pipeline.mjs open | list | close <文件夹> | stop
+```
+
+- **三种步骤**：`sh` 在这次运行里它自己的文件夹中跑文件夹里的脚本（或一行 shell 命令），它需要的步骤的文件夹在 `$IN_<ID>`；`agent` 把 Markdown 提示词交给 `claude -p`（或别的命令，比如 `codex exec`），并告诉它输入在哪、要写哪些文件；`human` 问人一个问题，选项是前面某一步产出的文件里的每一行。
+- **一次运行**按步骤的依赖顺序走，能并行的一起跑（`parallel`，默认 4），每步可以设 `retry` 和 `timeout`。定义、脚本或提示词、输入都没变的步骤，直接用以前那次的结果（把文件链接进来），不再跑；读外面的东西的步骤写 `fresh: true`。
+- **怎么结束**：最后一行 `DONE …`、`FAIL … · <步骤> · <原因> · log <路径>` 或 `WAIT … · <步骤> waits for a person`，退出码 0、1 或 3（4：这条流水线已经在跑）。`resume` 在同一个文件夹里把失败、等人或中断的运行接着跑。
+- **不是守护进程，也不是定时器**：进程跑完一次就结束。由 Bot Tome、launchd、cron 或 CI 来启动；谁启动的谁看退出码和最后一行。
+- **页面**：步骤按依赖画成图，按某次运行里的状态上色（虚线：还没写），上面可以换一次运行。点一步看它的定义、日志和产出：图、音频、视频直接放，文字直接显示，CSV、TSV 显示成表格。等人回答的问题可以在页面上回答，回答后流水线接着跑。
+- **页面一台电脑一个进程。** 只听 127.0.0.1（4780，被占了就往上找）。自己的记录在 `~/.tome-pipeline/`（`$TOME_PIPELINE_HOME` 可以改）：打开过的流水线、在跑的进程（`servers/main.json`，`kind: "pipeline"`）。
+- **测试**：`cd apps/pipeline && npm test`。
 
 ## 许可
 

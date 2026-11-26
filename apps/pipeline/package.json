@@ -1,0 +1,10 @@
+{
+  "name": "tome-pipeline-tests",
+  "private": true,
+  "description": "Tests of the tome-pipeline skill (skills/tome-pipeline/scripts). The skill itself needs no build and no packages.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/"
+  }
+}

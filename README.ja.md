@@ -10,6 +10,7 @@
 | `tome-md` | Markdown：ブラウザーで表示したファイルの一部を選んでコメントや質問を書くと、エージェントがスレッドで答え、ファイルを直す |
 | `tome-design` | デザイン：普通の HTML で書いたボードを、ブラウザーのキャンバスに並べて見る。要素をクリックするか範囲を囲んでコメントすると、エージェントがファイルを直してスレッドで答える |
 | `tome-slides` | スライド：1 枚 1 つの普通の HTML ファイル。ブラウザーでスライドとスピーカーノートを見て、全画面でプレゼン、発表者ビュー、PDF・PowerPoint 保存。要素をクリックするか範囲を囲んでコメントすると、エージェントがファイルを直してスレッドで答える |
+| `tome-pipeline` | パイプライン：ステップ（スクリプト、エージェントへのプロンプト、人への質問）を並べたフォルダー。各ステップが何を必要とし何を出すかを書く。定期実行でも手動でも動き、入力が変わらないステップは前回の結果を使い、失敗や回答待ちの実行は続きから再開できる。ページでは状態ごとに色分けしたステップと、それぞれのログ・出力を見られる |
 
 ## インストール
 
@@ -20,9 +21,10 @@ ln -s "$PWD/skills/tome-board" ~/.claude/skills/tome-board
 ln -s "$PWD/skills/tome-md" ~/.claude/skills/tome-md
 ln -s "$PWD/skills/tome-design" ~/.claude/skills/tome-design
 ln -s "$PWD/skills/tome-slides" ~/.claude/skills/tome-slides
+ln -s "$PWD/skills/tome-pipeline" ~/.claude/skills/tome-pipeline
 ```
 
-`tome-md`・`tome-design`・`tome-slides` はビルド不要で、リンクすればそのまま使えます。`tome-board` のページは最初に 1 回ビルドします（Node 20 以上）。
+`tome-md`・`tome-design`・`tome-slides`・`tome-pipeline` はビルド不要で、リンクすればそのまま使えます。`tome-board` のページは最初に 1 回ビルドします（Node 20 以上）。
 
 ```sh
 cd apps/board && npm ci --ignore-scripts && node build.mjs
@@ -133,6 +135,29 @@ node skills/tome-slides/scripts/slides.mjs comment-reply <id> "…"  # 返信（
 - **コンピューター 1 台に 1 プロセス。** 127.0.0.1 だけで待ち受け（4770、使用中なら上の空きポート）。自分の記録は `~/.tome-slides/`（`$TOME_SLIDES_HOME` で変更）：開いたスライド、動いているプロセス（`servers/main.json`、`kind: "slides"`）、コメント。
 - **claude-slides の形式ではありません**（`project/deck.json`、使えるインラインスタイルが限られる）：tome-slides のスライドは普通の HTML で CSS も自由、単独でも開けます。書き出す PowerPoint は画像で、文字は編集できません。
 - **テスト**：`cd apps/slides && npm test`。
+
+## tome-pipeline：パイプライン
+
+`scripts/pipeline.mjs` はコマンドであり、実行役であり、ローカルのサーバーでもあります（Node 20 以上、依存なし）。`scripts/page/` はページで、普通の JavaScript なのでビルド不要です。パイプラインは 1 つのフォルダーです。`pipeline.json` に各ステップと、その前提・出力を書き、各ステップは `steps/` のスクリプトかプロンプトです。実行ごとに `runs/<時刻>/` ができ、各ステップのログと出力が入ります。
+
+```sh
+node skills/tome-pipeline/scripts/pipeline.mjs new "毎日のニュース"          # pipelines/毎日のニュース/（pipeline.json・steps/・runs/ を外す .gitignore）を作って開く。{"url": "http://127.0.0.1:4780/p/<id>", …} を出力
+node skills/tome-pipeline/scripts/pipeline.mjs check pipelines/毎日のニュース   # pipeline.json の問題と、まだ書いていないステップ
+node skills/tome-pipeline/scripts/pipeline.mjs run pipelines/毎日のニュース     # 1 回実行。--only <ステップ>：そのステップだけ。--all：前回の結果を使わない
+node skills/tome-pipeline/scripts/pipeline.mjs resume pipelines/毎日のニュース  # 最新の実行を続きから。--from <ステップ>：そこから後をやり直す
+node skills/tome-pipeline/scripts/pipeline.mjs answer pipelines/毎日のニュース pick "…" --resume   # 待っている質問に答えて続きを実行
+node skills/tome-pipeline/scripts/pipeline.mjs status pipelines/毎日のニュース
+node skills/tome-pipeline/scripts/pipeline.mjs schedule pipelines/毎日のニュース --cron "0 6 * * *"   # 定期実行に渡すコマンドを出力
+node skills/tome-pipeline/scripts/pipeline.mjs open | list | close <フォルダー> | stop
+```
+
+- **ステップは 3 種類**：`sh` はフォルダー内のスクリプト（またはシェルコマンド）を、この実行のそのステップ用フォルダーで動かします。前提のステップのフォルダーは `$IN_<ID>` にあります。`agent` は Markdown のプロンプトを `claude -p`（または `codex exec` など別のコマンド）に渡し、入力の場所と書くファイルを伝えます。`human` は人に質問し、選択肢は前のステップが出したファイルの各行です。
+- **1 回の実行**は前提の順に進み、並べられるものは並行して動きます（`parallel`、既定 4）。ステップごとに `retry` と `timeout` を設定できます。定義・スクリプトかプロンプト・入力がどれも変わらないステップは、以前の実行の結果を使い（ファイルをリンク）、動かしません。外部を読むステップには `fresh: true` を付けます。
+- **終わり方**：最後の 1 行が `DONE …`、`FAIL … · <ステップ> · <理由> · log <パス>`、`WAIT … · <ステップ> waits for a person` のどれかで、終了コードは 0・1・3（4：すでに実行中）。`resume` は失敗・回答待ち・中断した実行を同じフォルダーで続けます。
+- **常駐もスケジューラーもしない**：1 回の実行が終われば終了します。起動は Bot Tome・launchd・cron・CI などに任せ、起動した側が終了コードと最後の 1 行を読みます。
+- **ページ**：ステップを前提の順にグラフで描き、ある実行での状態で色分けします（破線：未実装）。上で実行を切り替えられます。ステップをクリックすると定義・ログ・出力が見られ、画像・音声・動画はその場で再生、テキストは表示、CSV・TSV は表になります。待っている質問にはページで答えられ、答えると続きを実行します。
+- **ページはコンピューター 1 台に 1 プロセス。** 127.0.0.1 だけで待ち受けます（4780、使用中なら上の空きポート）。自分の記録は `~/.tome-pipeline/`（`$TOME_PIPELINE_HOME` で変更可）：開いたパイプラインと動いているプロセス（`servers/main.json`、`kind: "pipeline"`）。
+- **テスト**：`cd apps/pipeline && npm test`。
 
 ## ライセンス
 
