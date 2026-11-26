@@ -37,8 +37,8 @@ kbd { font-family: var(--mono); font-size: 11px; opacity: 0.7; margin-left: 4px;
 .bar .path { border: 0; padding: 0; color: var(--dim); overflow: hidden; text-overflow: ellipsis; min-width: 0; flex-shrink: 1; }
 .bar .changed { color: var(--new); border-color: currentColor; }
 .bar .problems { color: var(--pin); font-size: 12px; }
-.bar .export-pptx[data-failed] { color: var(--pin); border-color: currentColor; }
-.bar .export-pptx:disabled { opacity: .6; cursor: progress; }
+.bar :is(.export, .export-pptx)[data-failed] { color: var(--pin); border-color: currentColor; }
+.bar :is(.export, .export-pptx):disabled { opacity: .6; cursor: progress; }
 .listening { display: inline-block; width: 7px; height: 7px; margin-left: 6px; border-radius: 50%; background: var(--new); }
 .body { flex: 1; display: flex; min-height: 0; position: relative; }
 

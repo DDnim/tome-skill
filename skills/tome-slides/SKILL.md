@@ -38,8 +38,8 @@ Tell the user what happens on the page, never the mechanism.
   <file>`: there instead). `--pptx`: a PowerPoint file, `exports/<title>.pptx`, each slide one picture of it
   (all its steps shown) with its speaker notes and transition; the text is not editable in PowerPoint.
   `--png`: a picture per slide, `exports/<title>/01.png` … (`--out <dir>`). All need Chrome, Chromium, Edge
-  or Brave on this machine (`$CHROME_PATH` names one); without one, the page's Export PDF opens the print
-  dialog, where the user picks Save as PDF. The page's Export PPTX button makes the same .pptx in `exports/`.
+  or Brave on this machine (`$CHROME_PATH` names one). The page's Export PDF and Export PPTX buttons make the
+  same files in `exports/` and download them; without Chrome, Export PDF opens the print dialog instead.
 - `close "<folder>"` takes it off the list; the files stay. `stop` ends the page's process.
 
 Quote a path that has spaces.

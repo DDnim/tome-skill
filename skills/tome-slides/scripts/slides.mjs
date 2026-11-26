@@ -538,6 +538,7 @@ const TYPES = {
   svg: "image/svg+xml",
   png: "image/png",
   pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  pdf: "application/pdf",
   jpg: "image/jpeg",
   jpeg: "image/jpeg",
   gif: "image/gif",
@@ -713,19 +714,22 @@ export async function handle(ctx, req) {
       }
     }
     if (route === "POST /api/export") {
-      // The page's PowerPoint button: makes `exports/<title>.pptx` in the deck's folder and answers with it.
+      // The page's export buttons: makes `exports/<title>.pdf` or `.pptx` in the deck's folder; the page then
+      // downloads it from `/export/<id>.<kind>` (a plain link, which any browser saves).
       const id = req.query.get("id");
-      if (id === null) return bad("id");
+      const kind = req.query.get("kind");
+      if (id === null || !["pdf", "pptx"].includes(kind)) return bad("id and kind (pdf or pptx)");
       const d = decks.get(id);
+      if (!findChrome()) return json(409, { code: "NoChrome", detail: "no Chrome on this machine" });
       const busy = (ctx.exporting ??= new Map());
-      if (!busy.has(d.id)) busy.set(d.id, exportDeck(d, `http://${h("host")}/`, { kind: "pptx" }).finally(() => busy.delete(d.id)));
-      let file;
+      const key = `${d.id}.${kind}`;
+      if (!busy.has(key)) busy.set(key, exportDeck(d, `http://${h("host")}/`, { kind }).finally(() => busy.delete(key)));
       try {
-        [file] = await busy.get(d.id);
+        const [file] = await busy.get(key);
+        return json(200, { file, download: `/export/${d.id}.${kind}` });
       } catch (e) {
         return json(500, { code: "Io", detail: String(e?.message ?? e) });
       }
-      return { status: 200, type: TYPES.pptx, headers: { "x-tome-file": encodeURIComponent(file) }, body: fs.readFileSync(file) };
     }
     if (req.path.startsWith("/api/")) return text(404, "no such call");
     if (req.method !== "GET" && req.method !== "HEAD") return text(405, "GET only");
@@ -741,6 +745,17 @@ export async function handle(ctx, req) {
       const headers = { "Content-Security-Policy": SLIDE_CSP, "X-Frame-Options": "SAMEORIGIN" };
       if (ext === "html" || ext === "htm") return { status: 200, type, headers, body: Buffer.from(withProbe(fs.readFileSync(real, "utf8"))) };
       return { status: 200, type, headers, body: fs.readFileSync(real) };
+    }
+    const xm = req.path.match(/^\/export\/([0-9a-f]{16})\.(pdf|pptx)$/);
+    if (xm) {
+      // What the last export made, as a download.
+      const d = decks.get(xm[1]);
+      const name = `${safeName(readIndex(d.root).title)}.${xm[2]}`;
+      const file = path.join(d.root, EXPORTS, name);
+      if (!isFile(file)) return text(404, "not exported yet\n");
+      const ascii = name.replace(/[^\x20-\x7e]|["\\]/g, "_");
+      const headers = { "Content-Disposition": `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(name)}`, "Cache-Control": "no-store" };
+      return { status: 200, type: TYPES[xm[2]], headers, body: fs.readFileSync(file) };
     }
     const pm = req.path.match(/^\/print\/([0-9a-f]{16})$/);
     if (pm) return { status: 200, type: TYPES.html, body: Buffer.from(printPage(decks.read(pm[1]))) };

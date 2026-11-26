@@ -139,6 +139,15 @@ test("only opened decks, only their own files, slides in a sandbox", async () =>
   // What export writes does not count as a change.
   fs.writeFileSync(path.join(dir, "exports/Q3.pdf"), "%PDF");
   assert.equal(json(await handle(ctx, req("GET", `/api/wait?id=${d.id}&rev=${after.rev}&ms=0`))).rev, after.rev);
+  // …and is downloaded from a plain link.
+  const pdf = await handle(ctx, req("GET", `/export/${d.id}.pdf`));
+  assert.equal(pdf.status, 200);
+  assert.equal(pdf.type, "application/pdf");
+  assert.match(pdf.headers["Content-Disposition"], /^attachment; filename="Q3\.pdf"; filename\*=UTF-8''Q3\.pdf$/);
+  assert.equal(pdf.body.toString(), "%PDF");
+  assert.equal((await handle(ctx, req("GET", `/export/${d.id}.pptx`))).status, 404);
+  assert.equal((await handle(ctx, req("GET", `/export/${d.id}.html`))).status, 404);
+  assert.equal((await handle(ctx, req("POST", `/api/export?id=${d.id}&kind=png`, {}, { "x-tome-slides": "1" }))).status, 400);
 });
 
 test("only its own page may ask", async () => {

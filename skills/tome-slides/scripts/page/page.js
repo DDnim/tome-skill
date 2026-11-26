@@ -912,33 +912,33 @@ async function showDeck(id) {
   toggle.addEventListener("click", () => page.classList.toggle("panel-open"));
   pickButton.addEventListener("click", () => setPicking(!state.picking));
   page.querySelector(".present-button").addEventListener("click", () => openPresent(state.current));
-  page.querySelector(".export").addEventListener("click", () => window.open(`/print/${id}?auto=1`, "_blank"));
-  page.querySelector(".export-pptx").addEventListener("click", async (e) => {
-    // The server makes the file in the deck's exports/ (a picture of each slide, with its notes); the browser saves a copy too.
-    const b = e.currentTarget;
+  /** The server makes the file in the deck's exports/; the page downloads it with a plain link. */
+  async function exportAs(b, kind, label) {
     if (b.disabled) return;
     b.disabled = true;
     b.textContent = t("Exporting…");
     try {
-      const res = await fetch("/api/export?" + q({ id }), { method: "POST", headers: WRITE });
-      if (!res.ok) throw new Error((await res.json().catch(() => null))?.detail || `HTTP ${res.status}`);
-      const file = decodeURIComponent(res.headers.get("x-tome-file") ?? "");
-      const url = URL.createObjectURL(await res.blob());
-      const a = Object.assign(document.createElement("a"), { href: url, download: file.split("/").pop() || "deck.pptx" });
+      const res = await fetch("/api/export?" + q({ id, kind }), { method: "POST", headers: WRITE });
+      const body = await res.json().catch(() => null);
+      // No Chrome to make a PDF with: the print dialog makes one.
+      if (body?.code === "NoChrome" && kind === "pdf") return void window.open(`/print/${id}?auto=1`, "_blank");
+      if (!res.ok) throw new Error(body?.detail || `HTTP ${res.status}`);
+      const a = Object.assign(document.createElement("a"), { href: body.download, download: body.file.split("/").pop() });
       document.body.append(a);
       a.click();
       a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 60000);
-      b.title = t("Saved to {file}", { file });
+      b.title = t("Saved to {file}", { file: body.file });
     } catch (err) {
       b.title = t("Export failed: {detail}", { detail: err.message });
       b.dataset.failed = "1";
       setTimeout(() => delete b.dataset.failed, 4000);
     } finally {
       b.disabled = false;
-      b.textContent = t("Export PowerPoint");
+      b.textContent = t(label);
     }
-  });
+  }
+  page.querySelector(".export").addEventListener("click", (e) => exportAs(e.currentTarget, "pdf", "Export PDF"));
+  page.querySelector(".export-pptx").addEventListener("click", (e) => exportAs(e.currentTarget, "pptx", "Export PowerPoint"));
   page.querySelector(".path").addEventListener("click", async (e) => {
     const b = e.currentTarget;
     try {
