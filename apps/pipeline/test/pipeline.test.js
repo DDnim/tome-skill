@@ -59,7 +59,7 @@ test("check: what is wrong in pipeline.json, and which steps are not written yet
   const ok = checkPipeline(dir);
   assert.deepEqual(ok.problems, []);
   assert.deepEqual(ok.todo, [{ step: "write", missing: "steps/write.md" }]);
-  assert.deepEqual(layout(readPipeline(dir).steps), { fetch: [0, 0], write: [1, 0], pick: [2, 0], cmd: [3, 0] });
+  assert.deepEqual(layout(readPipeline(dir).steps), { at: { fetch: [0, 0], write: [1, 0], pick: [2, 0], cmd: [3, 0] }, lanes: {} });
   assert.deepEqual(readPipeline(dir).steps.find((s) => s.id === "pick").out, ["answer.txt"]);
 
   fs.writeFileSync(

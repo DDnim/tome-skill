@@ -204,10 +204,11 @@ async function showList() {
 
 // ---- one pipeline ----
 
-const COL = 212;
+const COL = 236;
 const ROW = 92;
 const NODE_W = 176;
 const NODE_H = 72;
+const LANE = 22;
 
 function stepLine(v, s) {
   const st = v.run?.steps?.[s.id];
@@ -240,20 +241,49 @@ function stepLine(v, s) {
 function graphHtml(v, sel) {
   if (!v.steps.length) return `<p class="empty" style="margin:12px 16px">${esc(t("No steps yet."))}</p>`;
   const cols = Math.max(...v.steps.map((s) => s.at[0])) + 1;
-  const rows = Math.max(...v.steps.map((s) => s.at[1])) + 1;
+  const lanes = v.lanes ?? {};
+  const rows = Math.max(...v.steps.map((s) => s.at[1]), ...Object.values(lanes).flat().map((c) => c[1])) + 1;
+  // a row with a box is a box tall; a row that only lines pass through is thin
+  const boxRow = new Set(v.steps.map((s) => s.at[1]));
+  const top = [0];
+  for (let r = 0; r < rows; r++) top.push(top[r] + (boxRow.has(r) ? ROW : LANE));
+  const mid = (r) => top[r] + (boxRow.has(r) ? NODE_H / 2 : (LANE - 8) / 2);
   const w = (cols - 1) * COL + NODE_W;
-  const h = (rows - 1) * ROW + NODE_H;
-  const pos = Object.fromEntries(v.steps.map((s) => [s.id, [s.at[0] * COL, s.at[1] * ROW]]));
-  const edges = [];
+  const h = top[rows] - (boxRow.has(rows - 1) ? ROW - NODE_H : 8);
+  const pos = Object.fromEntries(v.steps.map((s) => [s.id, [s.at[0] * COL, top[s.at[1]]]]));
+  // each line: from the right of what it needs, straight through each empty cell it passes, to the left of the step
+  const lines = [];
   for (const s of v.steps) {
     for (const n of s.needs) {
-      const [x1, y1] = [pos[n][0] + NODE_W, pos[n][1] + NODE_H / 2];
-      const [x2, y2] = [pos[s.id][0], pos[s.id][1] + NODE_H / 2];
-      const k = Math.max(24, (x2 - x1) / 2);
-      const ok = ["done", "skipped"].includes(v.run?.steps?.[n]?.state);
-      edges.push(`<path class="${ok ? "ok" : ""}" d="M${x1} ${y1} C${x1 + k} ${y1} ${x2 - k} ${y2} ${x2 - 3} ${y2}" marker-end="url(#ah${ok ? "ok" : ""})"/>`);
+      if (!pos[n] || n === s.id) continue;
+      const via = [];
+      for (const [c, r] of lanes[`${n}>${s.id}`] ?? []) via.push([c * COL, mid(r)], [c * COL + NODE_W, mid(r)]);
+      lines.push({ from: n, to: s.id, via, ok: ["done", "skipped"].includes(v.run?.steps?.[n]?.state) });
     }
   }
+  // the lines that leave or enter one box spread along its side, in the order of where they go or come from
+  const port = (key, side, aim) => {
+    const group = new Map();
+    for (const l of lines) (group.get(l[key]) ?? group.set(l[key], []).get(l[key])).push(l);
+    for (const [id, list] of group) {
+      list.sort((a, b) => aim(a) - aim(b));
+      const gap = list.length > 1 ? Math.min(12, (NODE_H - 28) / (list.length - 1)) : 0;
+      list.forEach((l, i) => (l[side] = pos[id][1] + NODE_H / 2 + (i - (list.length - 1) / 2) * gap));
+    }
+  };
+  const yOf = (id) => pos[id][1];
+  port("from", "y1", (l) => (l.via.length ? l.via[0][1] : yOf(l.to)));
+  port("to", "y2", (l) => (l.via.length ? l.via.at(-1)[1] : yOf(l.from)));
+  const edges = lines.map((l) => {
+    const pts = [[pos[l.from][0] + NODE_W, l.y1], ...l.via, [pos[l.to][0] - 3, l.y2]];
+    let d = `M${pts[0][0]} ${pts[0][1]}`;
+    for (let i = 1; i < pts.length; i++) {
+      const [[x1, y1], [x2, y2]] = [pts[i - 1], pts[i]];
+      const k = (x2 - x1) / 2;
+      d += i % 2 === 0 ? ` L${x2} ${y2}` : ` C${x1 + k} ${y1} ${x2 - k} ${y2} ${x2} ${y2}`;
+    }
+    return `<path class="${l.ok ? "ok" : ""}" d="${d}" marker-end="url(#ah${l.ok ? "ok" : ""})"/>`;
+  });
   const nodes = v.steps
     .map((s) => {
       const line = stepLine(v, s);

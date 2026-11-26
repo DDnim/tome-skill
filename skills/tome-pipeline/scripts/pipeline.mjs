@@ -303,7 +303,13 @@ function findCycle(steps) {
   return null;
 }
 
-/** Each step's column (its longest chain of needs) and row: {id: [col, row]}. */
+/**
+ * Where the page draws each step, as grid cells: `at` {id: [col, row]}, and `lanes` {"from>to": [[col, row], …]},
+ * the empty cells a need that skips columns runs through, so no line crosses a box.
+ * A step's column is its longest chain of needs; a step that needs nothing sits just before the first step that
+ * needs it. Rows are ordered by the rows of what each step needs (a few sweeps both ways), then pulled level with
+ * them where the column has room.
+ */
 export function layout(steps) {
   const by = new Map(steps.map((s) => [s.id, s]));
   const col = new Map();
@@ -311,20 +317,72 @@ export function layout(steps) {
     if (col.has(id)) return col.get(id);
     if (seen.has(id)) return 0;
     seen.add(id);
-    const d = Math.max(-1, ...by.get(id).needs.map((n) => depth(n, seen))) + 1;
+    const d = Math.max(-1, ...by.get(id).needs.filter((n) => by.has(n)).map((n) => depth(n, seen))) + 1;
     col.set(id, d);
     return d;
   };
   steps.forEach((s) => depth(s.id));
-  const rows = new Map();
-  const out = {};
+  const after = new Map(steps.map((s) => [s.id, []]));
+  for (const s of steps) for (const n of s.needs) if (by.has(n) && n !== s.id) after.get(n).push(s.id);
   for (const s of steps) {
-    const c = col.get(s.id);
-    const r = rows.get(c) ?? 0;
-    rows.set(c, r + 1);
-    out[s.id] = [c, r];
+    const later = after.get(s.id).map((d) => col.get(d));
+    if (!s.needs.length && later.length) col.set(s.id, Math.max(0, Math.min(...later) - 1));
   }
-  return out;
+  // the cells: steps, and one stand-in per column a need passes through
+  const cells = new Map(steps.map((s) => [s.id, { id: s.id, col: col.get(s.id), prev: [], next: [] }]));
+  const lanes = {};
+  const link = (a, b) => (cells.get(a).next.push(b), cells.get(b).prev.push(a));
+  for (const s of steps) {
+    for (const n of s.needs) {
+      if (!by.has(n) || n === s.id || col.get(n) >= col.get(s.id)) continue;
+      let last = n;
+      const via = [];
+      for (let c = col.get(n) + 1; c < col.get(s.id); c++) {
+        const id = `${n}>${s.id}@${c}`;
+        cells.set(id, { id, col: c, prev: [], next: [], lane: true });
+        link(last, id);
+        via.push(id);
+        last = id;
+      }
+      link(last, s.id);
+      if (via.length) lanes[`${n}>${s.id}`] = via;
+    }
+  }
+  const cols = [];
+  for (const c of cells.values()) (cols[c.col] ??= []).push(c);
+  for (let i = 0; i < cols.length; i++) cols[i] ??= [];
+  const order = new Map();
+  const number = () => cols.forEach((list) => list.forEach((c, i) => order.set(c.id, i)));
+  number();
+  const sweep = (list, side) => {
+    const key = new Map(list.map((c, i) => {
+      const near = c[side].map((id) => order.get(id));
+      return [c.id, near.length ? near.reduce((a, b) => a + b, 0) / near.length : i];
+    }));
+    list.sort((a, b) => key.get(a.id) - key.get(b.id));
+    list.forEach((c, i) => order.set(c.id, i));
+  };
+  for (let k = 0; k < 4; k++) {
+    for (let i = 1; i < cols.length; i++) sweep(cols[i], "prev");
+    for (let i = cols.length - 2; i >= 0; i--) sweep(cols[i], "next");
+  }
+  // rows: in that order, each as level with what it needs as the cells above it allow
+  const row = new Map();
+  for (const list of cols) {
+    let free = 0;
+    for (const c of list) {
+      const near = c.prev.map((id) => row.get(id)).filter((r) => r !== undefined).sort((a, b) => a - b);
+      const want = near.length ? near[Math.floor((near.length - 1) / 2)] : 0;
+      const r = Math.max(free, want);
+      row.set(c.id, r);
+      free = r + 1;
+    }
+  }
+  const at = {};
+  for (const s of steps) at[s.id] = [col.get(s.id), row.get(s.id)];
+  const out = {};
+  for (const [k, via] of Object.entries(lanes)) out[k] = via.map((id) => [cells.get(id).col, row.get(id)]);
+  return { at, lanes: out };
 }
 
 /** The steps that come after `id`, through needs (not `id` itself). */
@@ -932,8 +990,9 @@ export function view(root, id, run = null) {
   const state = shownState(root, status);
   const steps = status?.steps ?? {};
   if (state === "interrupted") for (const s of Object.values(steps)) if (s.state === "running") s.state = "interrupted";
-  const at = layout(p.steps);
+  const { at, lanes } = layout(p.steps);
   return {
+    lanes,
     id,
     root,
     title: p.title,
