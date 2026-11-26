@@ -810,8 +810,9 @@ async function showDesign(id) {
   renderBar();
   renderWorld();
   renderPanel();
-  fit();
+  // The panel first: the canvas fits into what is left beside it.
   if (innerWidth >= 1100) page.classList.add("panel-open");
+  fit();
   const asked = new URL(location.href).searchParams.get("b");
   if (asked && boardOf(asked)?.exists) openFocus(asked);
   await loadComments();
