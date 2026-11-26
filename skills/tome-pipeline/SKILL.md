@@ -9,7 +9,7 @@ description: >-
   each one's log and files, and takes a person's answer. Use when the user asks to design or build a
   pipeline, a workflow of steps, a production line, a batch job to run on a schedule, 流水线, 工作流,
   パイプライン, names tome-pipeline, or wants to change or run a folder that holds pipeline.json. Not for
-  data warehouse transforms (dbt and the like), not a scheduler, not a service that stays running.
+  data warehouse transforms (dbt: tome-etl), not a scheduler, not a service that stays running.
 ---
 
 # Pipeline: a folder of steps

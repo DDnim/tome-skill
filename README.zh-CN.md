@@ -11,6 +11,7 @@ Agent Tome 的 skill。每个 skill 是 `skills/<名字>/`：`SKILL.md` 告诉 a
 | `tome-design` | 设计稿：画板写成普通的 HTML，在浏览器里的画布上并排看；点一个元素或框一块区域评论，agent 改文件、在评论下面回答 |
 | `tome-slides` | 幻灯片：一页一个普通的 HTML 文件，在浏览器里看幻灯片和演讲备注；全屏演示、演讲者视图、存成 PDF 或 PowerPoint；点一个元素或框一块区域评论，agent 改文件、在评论下面回答 |
 | `tome-pipeline` | 流水线：一个文件夹里的几步（脚本、给 agent 的提示词、问人的问题），每步写明需要什么、产出什么；定时或手动跑，输入没变的步骤直接用上次的结果，失败或等人的那次运行能接着跑；页面上按状态给每一步上色，看每步的日志和产出 |
+| `tome-etl` | 把 dbt 项目看成一张图：模型、来源、seed、snapshot 按谁读谁排开，点一个模型看它的 SQL、列、测试和最近的结果；还没写的模型是计划，画成虚线，由 agent 生成文件；检视会指出缺测试、缺主键测试、缺说明的模型；对模型或某一列评论，agent 改 SQL 和 YAML 并回复 |
 
 ## 安装
 
@@ -22,9 +23,10 @@ ln -s "$PWD/skills/tome-md" ~/.claude/skills/tome-md
 ln -s "$PWD/skills/tome-design" ~/.claude/skills/tome-design
 ln -s "$PWD/skills/tome-slides" ~/.claude/skills/tome-slides
 ln -s "$PWD/skills/tome-pipeline" ~/.claude/skills/tome-pipeline
+ln -s "$PWD/skills/tome-etl" ~/.claude/skills/tome-etl
 ```
 
-`tome-md`、`tome-design`、`tome-slides` 和 `tome-pipeline` 不用构建，链接上就能用。`tome-board` 的页面要先构建一次（Node 20+）：
+`tome-md`、`tome-design`、`tome-slides`、`tome-pipeline` 和 `tome-etl` 不用构建，链接上就能用。`tome-board` 的页面要先构建一次（Node 20+）：
 
 ```sh
 cd apps/board && npm ci --ignore-scripts && node build.mjs
@@ -158,6 +160,34 @@ node skills/tome-pipeline/scripts/pipeline.mjs open | list | close <文件夹> |
 - **页面**：步骤按依赖画成图，按某次运行里的状态上色（虚线：还没写），上面可以换一次运行。点一步看它的定义、日志和产出：图、音频、视频直接放，文字直接显示，CSV、TSV 显示成表格。等人回答的问题可以在页面上回答，回答后流水线接着跑。
 - **页面一台电脑一个进程。** 只听 127.0.0.1（4780，被占了就往上找）。自己的记录在 `~/.tome-pipeline/`（`$TOME_PIPELINE_HOME` 可以改）：打开过的流水线、在跑的进程（`servers/main.json`，`kind: "pipeline"`）。
 - **测试**：`cd apps/pipeline && npm test`。
+
+## tome-etl：把 dbt 项目看成一张图
+
+`scripts/etl.mjs` 既是命令，也是本机的服务（Node 20+，没有依赖）。`scripts/page/` 是页面：普通的 JavaScript，不用构建。它只读 dbt 写在项目 `target/` 里的文件，不连数据库。
+
+```sh
+node skills/tome-etl/scripts/etl.mjs open path/to/project          # 没启动就启动；打印 {"url": "http://127.0.0.1:4790/p/<id>", …}；--select orders：这个模型和它周围
+node skills/tome-etl/scripts/etl.mjs parse path/to/project         # 在项目里跑 `dbt parse`（不连任何库），更新 target/manifest.json
+node skills/tome-etl/scripts/etl.mjs status path/to/project        # dbt 版本、什么时候 parse 的、之后文件有没有改、数量
+node skills/tome-etl/scripts/etl.mjs models path/to/project --select "+orders+1"   # 每个模型一行；前后的 + 和 dbt 一样
+node skills/tome-etl/scripts/etl.mjs show path/to/project orders   # 一个模型：文件、列、测试和最近的结果、上游、下游
+node skills/tome-etl/scripts/etl.mjs review path/to/project        # 模型缺什么
+node skills/tome-etl/scripts/etl.mjs check path/to/project         # tome-etl.json：哪里有问题、计划里还没定的、哪些计划已经写出来了
+node skills/tome-etl/scripts/etl.mjs scaffold path/to/project      # 给还没写的计划生成 .sql 和 .yml；不覆盖已有的文件
+node skills/tome-etl/scripts/etl.mjs open | list | close <项目> | stop
+node skills/tome-etl/scripts/etl.mjs comments --wait         # 等你把评论发给 agent，打印那条评论后结束
+node skills/tome-etl/scripts/etl.mjs comment-reply <id> "…"  # 回复（--resolve 同时关闭）；comment-resolve <id> 只关闭
+```
+
+- **读什么**：`target/manifest.json`（`dbt parse` 生成：模型、各自读谁、列、测试、SQL），有的话还读 `run_results.json`（每个模型和测试最近一次的结果）、`catalog.json`（列的类型和行数，来自 `dbt docs generate`）、`sources.json`（新鲜度）。测试里放了 dbt 1.4、1.7、1.12 的 manifest；它自己不解析 Jinja 和 SQL。
+- **它只跑 `dbt parse` 这一条 dbt 命令。** 运行、测试、构建由你或 agent 对开发用的 target 去跑。dbt 的启动方式按 `tome-etl.json` 的 `"dbt"`，没有就用 `$TOME_ETL_DBT`，再没有就用项目的 `.venv/bin/dbt`，最后是 `dbt`。
+- **页面**：左边是模型列表（搜索、目录、tag；还有「检视」页签），中间是图，下面是选中的模型（文件、主键、列和列上的测试、最近一次运行、原始和编译后的 SQL、测试），右边是评论。小项目整张画出来，选中模型的上下游高亮；大项目只画选中的模型和它上下 1、2、3 层或全部，几千个模型也能用。
+- **计划**：还没写的模型或来源，是项目里 `tome-etl.json` 的一条（一行是什么、主键、读谁、怎么物化、列和测试）。它用虚线画在真实模型中间。`scaffold` 生成它的 `.sql`（输入写成 CTE、config、增量模型的水位条件）和 `.yml`（说明、列、主键上的测试）；`dbt parse` 认到这个模型之后，计划就算完成。
+- **检视**：没有测试的模型、没有主键测试的、`unique_key` 没被测试覆盖的、测了 unique 没测 not_null 的列、没有说明的、增量模型没有 `unique_key` 的、来源没有 freshness 的。只看 manifest，不看数据。
+- **评论**：选一个模型按「评论」，或者点列旁边的 ＋。「添加注释」只保存；「发给 Agent」（有 agent 在跑 `comments --wait` 时）会连同之前的注释一起交给它。agent 拿到模型、列，以及要改的 SQL 和 YAML 的路径。
+- **没有的**：列级血缘、两个分支的数据对比、查询预览（这些用 dbt 官方的 VS Code 扩展、Power User for dbt、Recce），以及 Dataform。
+- **一台电脑一个进程。** 只听 127.0.0.1（4790，被占了就往上找）。自己的记录在 `~/.tome-etl/`（`$TOME_ETL_HOME` 可以改）：打开过的项目、在跑的进程（`servers/main.json`，`kind: "etl"`）、评论。
+- **测试**：`cd apps/etl && npm test`。
 
 ## 许可
 

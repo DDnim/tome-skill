@@ -1,0 +1,10 @@
+{
+  "name": "tome-etl-tests",
+  "private": true,
+  "description": "Tests of the tome-etl skill (skills/tome-etl/scripts). The skill itself needs no build and no packages.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/"
+  }
+}

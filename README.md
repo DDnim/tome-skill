@@ -11,6 +11,7 @@ Skills for coding agents, made for Agent Tome and usable without it. Each skill 
 | `tome-design` | A design: artboards written as plain HTML, side by side on a canvas in the browser; comment on an element or an area, and the agent changes the files and replies |
 | `tome-slides` | A slide deck: one plain HTML file per slide, the slides with their speaker notes in the browser; present full screen with a speaker view, save a PDF or a PowerPoint file, comment on an element or an area, and the agent changes the files and replies |
 | `tome-pipeline` | A pipeline: a folder of steps (scripts, prompts for an agent, questions for a person) with what each needs and makes; run it on a schedule or by hand, steps whose inputs did not change taken from the last run, a failed or waiting run carried on; a page draws the steps colored by their state, with each one's log and files |
+| `tome-etl` | A dbt project as a graph: the models, sources, seeds and snapshots by who reads whom, one model's SQL, columns, tests and last results; models not written yet are plans drawn dashed, and the agent writes their files; a review names what lacks tests, a tested key or a description; comment on a model or a column, and the agent changes the SQL and YAML and replies |
 
 ## Install
 
@@ -22,9 +23,10 @@ ln -s "$PWD/skills/tome-md" ~/.claude/skills/tome-md
 ln -s "$PWD/skills/tome-design" ~/.claude/skills/tome-design
 ln -s "$PWD/skills/tome-slides" ~/.claude/skills/tome-slides
 ln -s "$PWD/skills/tome-pipeline" ~/.claude/skills/tome-pipeline
+ln -s "$PWD/skills/tome-etl" ~/.claude/skills/tome-etl
 ```
 
-`tome-md`, `tome-design`, `tome-slides` and `tome-pipeline` need no build: once linked, they work. The page of `tome-board` is built once (Node 20+):
+`tome-md`, `tome-design`, `tome-slides`, `tome-pipeline` and `tome-etl` need no build: once linked, they work. The page of `tome-board` is built once (Node 20+):
 
 ```sh
 cd apps/board && npm ci --ignore-scripts && node build.mjs
@@ -158,6 +160,34 @@ node skills/tome-pipeline/scripts/pipeline.mjs open | list | close <folder> | st
 - **The page**: the steps as a graph colored by their state in a run (dashed: not written yet), a run picked at the top. A click on a step shows its definition, its log, and its files: pictures, sound and video play, text shows, CSV and TSV as a table. A question that waits can be answered there, and the run goes on.
 - **One process per computer** for the page. It listens on 127.0.0.1 only (4780, or the next free port up). Its own notes are in `~/.tome-pipeline/` (`$TOME_PIPELINE_HOME` moves it): the opened pipelines and the running process (`servers/main.json`, `kind: "pipeline"`).
 - **Tests**: `cd apps/pipeline && npm test`.
+
+## tome-etl: a dbt project as a graph
+
+`scripts/etl.mjs` is both the command and the local server (Node 20+, no dependencies). `scripts/page/` is the page: plain JavaScript, no build. It reads what dbt wrote in the project's `target/` folder and never the warehouse.
+
+```sh
+node skills/tome-etl/scripts/etl.mjs open path/to/project          # starts it if needed; prints {"url": "http://127.0.0.1:4790/p/<id>", …}; --select orders: that model and what is around it
+node skills/tome-etl/scripts/etl.mjs parse path/to/project         # runs `dbt parse` there (it connects to nothing), so target/manifest.json is new
+node skills/tome-etl/scripts/etl.mjs status path/to/project        # dbt's version, when it was parsed, whether files changed since, counts
+node skills/tome-etl/scripts/etl.mjs models path/to/project --select "+orders+1"   # a line per model; + before / after as in dbt
+node skills/tome-etl/scripts/etl.mjs show path/to/project orders   # one model: its files, columns, tests and their last result, what it reads, who reads it
+node skills/tome-etl/scripts/etl.mjs review path/to/project        # what the models lack
+node skills/tome-etl/scripts/etl.mjs check path/to/project         # tome-etl.json: what is wrong, what a plan leaves open, which plans are written
+node skills/tome-etl/scripts/etl.mjs scaffold path/to/project      # writes the .sql and .yml of the plans not written yet; never over a file
+node skills/tome-etl/scripts/etl.mjs open | list | close <project> | stop
+node skills/tome-etl/scripts/etl.mjs comments --wait         # waits until you send a comment to the agent, prints that comment and ends
+node skills/tome-etl/scripts/etl.mjs comment-reply <id> "…"  # replies (--resolve also closes it); comment-resolve <id> only closes it
+```
+
+- **What it reads**: `target/manifest.json` (from `dbt parse`: the models, what each reads, columns, tests, SQL), and when they are there `run_results.json` (each model's and test's last result), `catalog.json` (column types and row counts, from `dbt docs generate`) and `sources.json` (freshness). Manifests of dbt 1.4, 1.7 and 1.12 are among its tests; it parses no Jinja and no SQL itself.
+- **The only dbt command it runs is `dbt parse`.** Running, testing and building are left to you or the agent, against a development target. dbt is started as `tome-etl.json`'s `"dbt"` says, else `$TOME_ETL_DBT`, else the project's `.venv/bin/dbt`, else `dbt`.
+- **The page**: the list of models on the left (search, folder, tag; a Review tab), the graph in the middle, the chosen model under it (files, key, columns with their tests, last run, SQL as written and compiled, tests), the comments on the right. A small project is drawn whole with the chosen model's way in and out highlighted; a large one shows the chosen model with 1, 2, 3 or all levels around it, so thousands of models stay usable.
+- **Plans**: a model or a source that is not written yet is an entry in the project's `tome-etl.json` (what one row is, its key, what it reads, how it is materialized, its columns and tests). It is drawn dashed among the real models. `scaffold` writes its `.sql` (inputs as CTEs, config, the watermark of an incremental model) and `.yml` (description, columns, tests on the key); once `dbt parse` knows the model, the plan is done.
+- **Review**: models with no tests, no test of their key, a `unique_key` no test covers, a column tested unique but not not_null, no description, incremental without a `unique_key`, a source without freshness. Read from the manifest, not from the data.
+- **Comments**: select a model and press Comment, or the ＋ beside a column. "Add note" keeps it; "Send to Agent" (while an agent runs `comments --wait`) hands it over with the notes before it. The agent gets the model, the column, and the paths of the SQL and the YAML to change.
+- **Not here**: column-level lineage, a diff of two branches' data, query preview (dbt's VS Code extension, Power User for dbt and Recce do those), and Dataform.
+- **One process per computer.** It listens on 127.0.0.1 only (4790, or the next free port up). Its own notes are in `~/.tome-etl/` (`$TOME_ETL_HOME` moves it): the opened projects, the running process (`servers/main.json`, `kind: "etl"`), the comments.
+- **Tests**: `cd apps/etl && npm test`.
 
 ## License
 

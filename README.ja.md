@@ -11,6 +11,7 @@
 | `tome-design` | デザイン：普通の HTML で書いたボードを、ブラウザーのキャンバスに並べて見る。要素をクリックするか範囲を囲んでコメントすると、エージェントがファイルを直してスレッドで答える |
 | `tome-slides` | スライド：1 枚 1 つの普通の HTML ファイル。ブラウザーでスライドとスピーカーノートを見て、全画面でプレゼン、発表者ビュー、PDF・PowerPoint 保存。要素をクリックするか範囲を囲んでコメントすると、エージェントがファイルを直してスレッドで答える |
 | `tome-pipeline` | パイプライン：ステップ（スクリプト、エージェントへのプロンプト、人への質問）を並べたフォルダー。各ステップが何を必要とし何を出すかを書く。定期実行でも手動でも動き、入力が変わらないステップは前回の結果を使い、失敗や回答待ちの実行は続きから再開できる。ページでは状態ごとに色分けしたステップと、それぞれのログ・出力を見られる |
+| `tome-etl` | dbt プロジェクトをグラフで見る：モデル・ソース・seed・snapshot を「どれがどれを読むか」で並べ、モデルを選ぶと SQL・列・テスト・直近の結果が見られる。まだ書いていないモデルは計画として破線で描き、エージェントがファイルを作る。レビューはテスト・キーのテスト・説明が足りないモデルを挙げる。モデルや列にコメントすると、エージェントが SQL と YAML を直して返信する |
 
 ## インストール
 
@@ -22,9 +23,10 @@ ln -s "$PWD/skills/tome-md" ~/.claude/skills/tome-md
 ln -s "$PWD/skills/tome-design" ~/.claude/skills/tome-design
 ln -s "$PWD/skills/tome-slides" ~/.claude/skills/tome-slides
 ln -s "$PWD/skills/tome-pipeline" ~/.claude/skills/tome-pipeline
+ln -s "$PWD/skills/tome-etl" ~/.claude/skills/tome-etl
 ```
 
-`tome-md`・`tome-design`・`tome-slides`・`tome-pipeline` はビルド不要で、リンクすればそのまま使えます。`tome-board` のページは最初に 1 回ビルドします（Node 20 以上）。
+`tome-md`・`tome-design`・`tome-slides`・`tome-pipeline`・`tome-etl` はビルド不要で、リンクすればそのまま使えます。`tome-board` のページは最初に 1 回ビルドします（Node 20 以上）。
 
 ```sh
 cd apps/board && npm ci --ignore-scripts && node build.mjs
@@ -158,6 +160,34 @@ node skills/tome-pipeline/scripts/pipeline.mjs open | list | close <フォルダ
 - **ページ**：ステップを前提の順にグラフで描き、ある実行での状態で色分けします（破線：未実装）。上で実行を切り替えられます。ステップをクリックすると定義・ログ・出力が見られ、画像・音声・動画はその場で再生、テキストは表示、CSV・TSV は表になります。待っている質問にはページで答えられ、答えると続きを実行します。
 - **ページはコンピューター 1 台に 1 プロセス。** 127.0.0.1 だけで待ち受けます（4780、使用中なら上の空きポート）。自分の記録は `~/.tome-pipeline/`（`$TOME_PIPELINE_HOME` で変更可）：開いたパイプラインと動いているプロセス（`servers/main.json`、`kind: "pipeline"`）。
 - **テスト**：`cd apps/pipeline && npm test`。
+
+## tome-etl：dbt プロジェクトをグラフで見る
+
+`scripts/etl.mjs` はコマンドであり、ローカルのサーバーでもあります（Node 20 以上、依存なし）。`scripts/page/` はページで、普通の JavaScript なのでビルド不要です。読むのは dbt がプロジェクトの `target/` に書いたファイルだけで、データベースには接続しません。
+
+```sh
+node skills/tome-etl/scripts/etl.mjs open path/to/project          # 必要なら起動。{"url": "http://127.0.0.1:4790/p/<id>", …} を出力。--select orders：そのモデルと周り
+node skills/tome-etl/scripts/etl.mjs parse path/to/project         # そこで `dbt parse` を実行（どこにも接続しない）し、target/manifest.json を新しくする
+node skills/tome-etl/scripts/etl.mjs status path/to/project        # dbt のバージョン、parse した時刻、その後ファイルが変わったか、件数
+node skills/tome-etl/scripts/etl.mjs models path/to/project --select "+orders+1"   # モデルごとに 1 行。前後の + は dbt と同じ
+node skills/tome-etl/scripts/etl.mjs show path/to/project orders   # モデル 1 つ：ファイル、列、テストと直近の結果、上流、下流
+node skills/tome-etl/scripts/etl.mjs review path/to/project        # モデルに足りないもの
+node skills/tome-etl/scripts/etl.mjs check path/to/project         # tome-etl.json：問題、計画でまだ決まっていない点、作成済みの計画
+node skills/tome-etl/scripts/etl.mjs scaffold path/to/project      # まだ書いていない計画の .sql と .yml を作る。既存のファイルは上書きしない
+node skills/tome-etl/scripts/etl.mjs open | list | close <プロジェクト> | stop
+node skills/tome-etl/scripts/etl.mjs comments --wait         # コメントがエージェントに送られるまで待ち、そのコメントを出力して終了
+node skills/tome-etl/scripts/etl.mjs comment-reply <id> "…"  # 返信（--resolve で同時に解決）。comment-resolve <id> は解決だけ
+```
+
+- **読むもの**：`target/manifest.json`（`dbt parse` が作る：モデル、それぞれが読むもの、列、テスト、SQL）。あれば `run_results.json`（モデルとテストの直近の結果）、`catalog.json`（列の型と行数、`dbt docs generate` が作る）、`sources.json`（鮮度）も読みます。テストには dbt 1.4・1.7・1.12 の manifest が入っています。Jinja と SQL を自分では解析しません。
+- **実行する dbt コマンドは `dbt parse` だけです。** 実行・テスト・ビルドは、あなたかエージェントが開発用の target に対して行います。dbt の起動方法は `tome-etl.json` の `"dbt"`、なければ `$TOME_ETL_DBT`、なければプロジェクトの `.venv/bin/dbt`、最後に `dbt` です。
+- **ページ**：左にモデルの一覧（検索・フォルダー・タグ、「レビュー」タブ）、中央にグラフ、その下に選んだモデル（ファイル、キー、列とそのテスト、直近の実行、書いたままの SQL とコンパイル後の SQL、テスト）、右にコメント。小さいプロジェクトは全体を描き、選んだモデルの上流と下流を強調します。大きいプロジェクトは選んだモデルと前後 1・2・3 段または全部だけを描くので、モデルが数千あっても使えます。
+- **計画**：まだ書いていないモデルやソースは、プロジェクトの `tome-etl.json` の 1 項目です（1 行が何か、キー、読むもの、マテリアライズの方法、列とテスト）。実在のモデルの間に破線で描かれます。`scaffold` がその `.sql`（入力を CTE に、config、増分モデルのウォーターマーク条件）と `.yml`（説明、列、キーのテスト）を作り、`dbt parse` がそのモデルを認識したら計画は完了です。
+- **レビュー**：テストが 1 つもないモデル、キーのテストがないもの、`unique_key` をテストが覆っていないもの、unique だけで not_null のない列、説明がないもの、`unique_key` のない増分モデル、freshness のないソース。データではなく manifest から読みます。
+- **コメント**：モデルを選んで「コメント」を押すか、列の横の ＋ を押します。「メモを追加」は保存だけ。「Agent に送る」（エージェントが `comments --wait` を実行している間）は、それまでのメモと一緒に渡します。エージェントにはモデル、列、直す SQL と YAML のパスが渡ります。
+- **ないもの**：列レベルのリネージ、ブランチ間のデータ比較、クエリのプレビュー（dbt 公式の VS Code 拡張、Power User for dbt、Recce が担います）、Dataform。
+- **コンピューター 1 台に 1 プロセス。** 127.0.0.1 だけで待ち受けます（4790、使用中なら上の空きポート）。自分の記録は `~/.tome-etl/`（`$TOME_ETL_HOME` で変更可）：開いたプロジェクト、動いているプロセス（`servers/main.json`、`kind: "etl"`）、コメント。
+- **テスト**：`cd apps/etl && npm test`。
 
 ## ライセンス
 
