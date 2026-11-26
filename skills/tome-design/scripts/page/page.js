@@ -49,7 +49,7 @@ const zh = {
   "Present": "演示",
   "Exit": "退出",
   "Restart": "重新开始",
-  "Click anywhere to see what leads to another board. ← → for the others.": "点空白处会闪出能跳到别的画板的地方。← → 换一张。",
+  "Click anywhere to see what leads to another board. ← → for the others, C to comment.": "点空白处会闪出能跳到别的画板的地方。← → 换一张，C 评论。",
   "Copy path": "复制路径",
   "Copied": "已复制",
 };
@@ -95,7 +95,7 @@ const ja = {
   "Present": "プレゼン",
   "Exit": "終了",
   "Restart": "最初から",
-  "Click anywhere to see what leads to another board. ← → for the others.": "空いている所をクリックすると、別のボードへ進める場所が光ります。← → で前後。",
+  "Click anywhere to see what leads to another board. ← → for the others, C to comment.": "空いている所をクリックすると、別のボードへ進める場所が光ります。← → で前後、C でコメント。",
   "Copy path": "パスをコピー",
   "Copied": "コピーしました",
 };
@@ -260,6 +260,11 @@ async function showDesign(id) {
     pickButton.classList.toggle("on", state.picking);
     const n = openThreads().length;
     toggle.innerHTML = `${esc(t("Comments"))} ${n}${state.listening ? '<em class="listening"></em>' : ""}`;
+    const pres = page.querySelector(".present");
+    if (pres) {
+      pres.querySelector(".p-pick").classList.toggle("on", state.picking);
+      pres.querySelector(".p-toggle").innerHTML = toggle.innerHTML;
+    }
   }
 
   // -- the canvas --
@@ -585,37 +590,51 @@ async function showDesign(id) {
           <b class="name"></b><span class="count"></span>
           <span class="grow"></span>
           <button class="restart">${esc(t("Restart"))}<kbd>R</kbd></button>
+          <button class="p-pick">${esc(t("Comment"))}<kbd>C</kbd></button>
+          <button class="p-toggle"></button>
         </div>
-        <div class="present-stage"><div class="device"></div></div>
-        <div class="present-tip">${esc(t("Click anywhere to see what leads to another board. ← → for the others."))}</div>
+        <div class="present-body">
+          <div class="present-stage"><div class="device"></div><div class="present-tip">${esc(t("Click anywhere to see what leads to another board. ← → for the others, C to comment."))}</div></div>
+        </div>
       </div>`);
     page.append(node);
+    // The comments go along: the same panel, beside the board.
+    node.querySelector(".present-body").append(panel);
     node.querySelector(".exit").addEventListener("click", closePresent);
-    node.querySelector(".restart").addEventListener("click", () => presentGo(state.present.start, false, true));
+    node.querySelector(".restart").addEventListener("click", () => presentGo(state.present.start, "fresh", "fade"));
+    node.querySelector(".p-pick").addEventListener("click", () => setPicking(!state.picking));
+    node.querySelector(".p-toggle").addEventListener("click", () => page.classList.toggle("panel-open"));
     new ResizeObserver(layoutPresent).observe(node.querySelector(".present-stage"));
-    setTimeout(() => node.querySelector(".present-tip")?.classList.add("gone"), 4000);
-    const url = new URL(location.href);
-    url.searchParams.set("present", start);
-    history.replaceState(null, "", url);
-    presentGo(start, false, true);
+    setTimeout(() => node.querySelector(".present-tip")?.classList.add("gone"), 5000);
+    presentGo(start, "fresh");
+    renderBar();
   }
 
   function closePresent() {
     if (!state.present) return;
+    if (state.picking) setPicking(false);
     state.present = null;
+    page.querySelector(".body").append(panel);
     page.querySelector(".present")?.remove();
     const url = new URL(location.href);
     url.searchParams.delete("present");
     history.replaceState(null, "", url);
+    renderBar();
   }
 
-  /** Shows a board. `remember`: on the way (Backspace goes back to the one before); `fresh`: the way starts again. */
-  function presentGo(file, remember, fresh = false) {
+  /**
+   * Shows a board. `how`: "forward" (on the way: Backspace comes back here), "back", "fresh" (the way starts
+   * again) or "same" (the board shown, drawn again). `kind`: how it comes in, "slide" (from the side, the old
+   * one pushed away; back: the other way), "up" (from below, over the old one; back: the old one goes down),
+   * "fade" or "none".
+   */
+  function presentGo(file, how, kind = "slide") {
     const p = state.present;
     const b = boardOf(file);
     if (!p || !b?.exists) return;
-    if (fresh) p.trail = [];
-    else if (remember && p.file && p.file !== file) p.trail.push(p.file);
+    const move = ["slide", "up", "fade", "none"].includes(kind) ? kind : "slide";
+    if (how === "fresh") p.trail = [];
+    else if (how === "forward" && p.file && p.file !== file) p.trail.push({ file: p.file, kind: move });
     p.file = file;
     const node = page.querySelector(".present");
     const files = existing();
@@ -625,19 +644,57 @@ async function showDesign(id) {
     url.searchParams.set("present", file);
     history.replaceState(null, "", url);
     const device = node.querySelector(".device");
-    // The new board fades in over the old one; the old one goes when it is in.
+    const old = device.querySelector(`iframe[data-n="${device.dataset.current}"]`);
     const frame = el(`<iframe sandbox="allow-scripts" title="${esc(boardName(b))}"></iframe>`);
+    frame.dataset.n = String(++presentCount);
     frame.dataset.file = file;
     frame.dataset.rev = `${b.rev}-${state.design.assets}`;
-    frame.addEventListener("load", () => {
-      frame.classList.add("in");
-      setTimeout(() => {
-        for (const old of device.querySelectorAll("iframe")) if (old !== frame && device.lastElementChild === frame) old.remove();
-      }, 220);
-    });
-    frame.src = `${fileUrl(id, file)}?r=${frame.dataset.rev}`;
-    device.append(frame);
+    frame.style.width = b.w + "px";
+    frame.style.height = b.h + "px";
+    device.dataset.current = frame.dataset.n;
+    const W = device.clientWidth || b.w;
+    const H = device.clientHeight || b.h;
+    // Where the new board starts and where the old one goes: [x, y, opacity].
+    const instant = !old || how === "same" || move === "none";
+    let from = [0, 0, 0];
+    let away = [0, 0, 1];
+    let under = false;
+    if (!instant) {
+      if (how === "fresh" || move === "fade") from = [0, 0, 0];
+      else if (how === "back") {
+        under = true;
+        from = move === "up" ? [0, 0, 1] : [-W * 0.3, 0, 1];
+        away = move === "up" ? [0, H, 1] : [W, 0, 1];
+      } else {
+        from = move === "up" ? [0, H, 1] : [W, 0, 1];
+        away = move === "up" ? [0, 0, 1] : [-W * 0.3, 0, 1];
+      }
+    }
+    placeFrame(frame, from, false);
+    if (under) device.insertBefore(frame, old);
+    else device.append(frame);
     layoutPresent();
+    frame.addEventListener(
+      "load",
+      () => {
+        if (device.dataset.current !== frame.dataset.n) return;
+        void frame.offsetWidth;
+        placeFrame(frame, [0, 0, 1], !instant);
+        if (old) placeFrame(old, away, !instant);
+        setTimeout(() => {
+          for (const f of device.querySelectorAll("iframe")) if (f.dataset.n !== device.dataset.current) f.remove();
+        }, instant ? 0 : 360);
+      },
+      { once: true },
+    );
+    frame.src = `${fileUrl(id, file)}?r=${frame.dataset.rev}`;
+  }
+  let presentCount = 0;
+
+  function placeFrame(f, [x, y, o], animate) {
+    f.style.transition = animate ? "transform 0.34s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.22s ease-out" : "none";
+    f.style.transform = `translate(${x}px, ${y}px) scale(${f.dataset.s ?? 1})`;
+    f.style.opacity = String(o);
   }
 
   /** The board at its own size, smaller when the window is: it scrolls inside, as on the device. */
@@ -650,20 +707,30 @@ async function showDesign(id) {
     const device = node.querySelector(".device");
     device.style.width = b.w * s + "px";
     device.style.height = b.h * s + "px";
-    device.style.setProperty("--s", String(s));
-    device.style.setProperty("--w", b.w + "px");
-    device.style.setProperty("--h", b.h + "px");
+    const current = device.querySelector(`iframe[data-n="${device.dataset.current}"]`);
+    if (current) {
+      current.dataset.s = String(s);
+      current.style.transform = current.style.transform.replace(/scale\([^)]*\)/, `scale(${s})`);
+    }
   }
 
   function presentKey(e) {
     const p = state.present;
     const files = existing();
     const at = files.indexOf(p.file);
-    if (e.key === "Escape") closePresent();
-    else if (e.key === "ArrowRight" && at < files.length - 1) presentGo(files[at + 1], true);
-    else if (e.key === "ArrowLeft" && at > 0) presentGo(files[at - 1], true);
-    else if (e.key === "Backspace" && p.trail.length) presentGo(p.trail.pop(), false);
-    else if (e.key === "r" || e.key === "R") presentGo(p.start, false, true);
+    if (e.key === "Escape") {
+      if (state.picking) setPicking(false);
+      else if (state.draft) {
+        state.draft = null;
+        renderPanel();
+      } else closePresent();
+    } else if (e.key === "c" || e.key === "C") setPicking(!state.picking);
+    else if (e.key === "ArrowRight" && at < files.length - 1) presentGo(files[at + 1], "forward");
+    else if (e.key === "ArrowLeft" && at > 0) presentGo(files[at - 1], "back");
+    else if (e.key === "Backspace" && p.trail.length) {
+      const last = p.trail.pop();
+      presentGo(last.file, "back", last.kind);
+    } else if (e.key === "r" || e.key === "R") presentGo(p.start, "fresh", "fade");
     else return;
     e.preventDefault();
   }
@@ -675,12 +742,15 @@ async function showDesign(id) {
   }
   function setPicking(on) {
     state.picking = on;
-    stage.classList.toggle("picking", on && !state.focus);
+    stage.classList.toggle("picking", on && !state.focus && !state.present);
     page.querySelector(".focus")?.classList.toggle("picking", on);
     for (const f of iframes()) f.contentWindow?.postMessage({ tome: 1, type: "pick", on }, "*");
     hint.hidden = !on;
     hint.textContent = t("Click an element, or drag over an area. Esc to stop.");
-    if (state.focus) {
+    if (state.present) {
+      if (on) page.querySelector(".present-stage").append(hint);
+      else stage.append(hint);
+    } else if (state.focus) {
       // The hint shows over the board alone too.
       const focus = page.querySelector(".focus");
       if (on) focus.append(hint);
@@ -705,11 +775,11 @@ async function showDesign(id) {
     if (!file) return;
     if (m.type === "ready") {
       if (state.present) e.source.postMessage({ tome: 1, type: "hints", on: true }, "*");
-      else if (state.picking) e.source.postMessage({ tome: 1, type: "pick", on: true }, "*");
+      if (state.picking) e.source.postMessage({ tome: 1, type: "pick", on: true }, "*");
     } else if (m.type === "go" && typeof m.file === "string") {
       // A link to another board: that board, where the link was clicked.
       if (!boardOf(m.file)?.exists) return;
-      if (state.present) presentGo(m.file, true);
+      if (state.present) presentGo(m.file, "forward", m.transition);
       else if (state.focus === file) openFocus(m.file);
     } else if (m.type === "size" && Number.isFinite(m.h)) {
       state.sizes[file] = { w: m.w, h: m.h };
@@ -817,7 +887,9 @@ async function showDesign(id) {
     const x = state.threads.find((th) => th.id === threadId);
     const a = x?.anchor;
     const b = a ? boardOf(a.board) : null;
-    if (b) {
+    if (b && state.present) {
+      if (state.present.file !== b.file) presentGo(b.file, "forward", "fade");
+    } else if (b) {
       if (state.focus && state.focus !== b.file) openFocus(b.file);
       if (state.focus) {
         const scroller = page.querySelector(".focus-scroll");
@@ -968,10 +1040,11 @@ async function showDesign(id) {
       if (!hadBoards && r.boards.length) fit();
       if (state.focus) renderFocus(false);
       if (state.present) {
-        const shown = page.querySelector(".present .device iframe:last-child");
+        const device = page.querySelector(".present .device");
+        const shown = device?.querySelector(`iframe[data-n="${device.dataset.current}"]`);
         const b = boardOf(state.present.file);
         if (!b?.exists) closePresent();
-        else if (shown?.dataset.rev !== `${b.rev}-${r.assets}`) presentGo(b.file, false);
+        else if (shown?.dataset.rev !== `${b.rev}-${r.assets}`) presentGo(b.file, "same");
       }
     } catch {
       await sleep(2000);

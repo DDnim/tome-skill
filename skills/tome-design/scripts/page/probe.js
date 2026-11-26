@@ -197,7 +197,7 @@
     const to = a ? boardOfLink(a) : null;
     if (to) {
       e.preventDefault();
-      send({ type: "go", file: to });
+      send({ type: "go", file: to, transition: a.dataset.transition || "slide" });
       return;
     }
     if (a && a.getAttribute("href").startsWith("#")) e.preventDefault();

@@ -77,7 +77,9 @@ head or inline; a script may run. The board runs in a sandbox of its own:
   pictures you need go into the folder.
 - No network calls, no `<iframe>`, no storage that must persist.
 - Links between boards (`<a href="Home.html">`, the path relative to the board) make it a clickable prototype:
-  shown alone or presented, clicking one goes to that board. Only `<a href>` leads to another board; a
+  shown alone or presented, clicking one goes to that board. In a presentation the next board slides in from
+  the side (and back the other way); `data-transition="up"` on the link brings it up from below, as a sheet,
+  `"fade"` fades it in, `"none"` swaps at once. Only `<a href>` leads to another board; a
   `<button>` does what its script does. In a presentation, a click on nothing that leads anywhere flashes the
   links that do, so put the way forward on a link (the main button of a step can be an `<a class="btn">`).
 
@@ -150,8 +152,8 @@ Finding the place: open `file` and look for `element.path` (or `element.html`, o
 ## What is not here
 
 - Presenting: Present (or P) starts at the board shown alone or selected (else the first); ← → go through the
-  boards in order, Backspace back along the clicked way, R starts again, Esc ends. No comments while presenting,
-  and no transitions but a short fade.
+  boards in order, Backspace back along the clicked way (the way it came, reversed), R starts again, Esc ends.
+  Comments work there too (C, then a click or a drag on the board), with the panel beside it.
 - The page shows and comments; it does not edit. There is no retyping text or dragging boards on the page: the
   user asks, you change the files.
 - It listens on this computer only: no link for a phone or another computer.
