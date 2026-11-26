@@ -14,7 +14,8 @@ description: >-
 A design is a folder: `design.json` lays out its artboards, and each artboard is one HTML file in the folder.
 This skill's script starts a small page on this machine that shows the boards side by side on a canvas,
 each at its own size. The user moves and zooms around, double-clicks a board to see it alone (and use it:
-links and scripts work there), and comments on a part of it. You write the files; an open page shows what
+links and scripts work there), presents the boards one at a time full-window like a clickable prototype, and
+comments on a part of it. You write the files; an open page shows what
 you write at once, the changed boards outlined in green.
 
 Tell the user what happens on the canvas, never the mechanism.
@@ -28,7 +29,8 @@ Tell the user what happens on the canvas, never the mechanism.
   The title is the design's name as the user says it, in their language.
 - `open "<folder>"` → starts the page in the background (once; later calls reuse it) and puts the design on
   its list: `url` is that design's canvas, `http://127.0.0.1:4760/d/<id>` (the next free port up when 4760 is
-  taken; `--port n` starts from n). `--board <file>`: the address of that board shown alone.
+  taken; `--port n` starts from n). `--board <file>`: the address of that board shown alone; `--present <file>`:
+  the address of a presentation that starts at that board.
 - `open` → the page that lists the opened designs.
 - `list` → the opened designs: `id`, `root`, `title`, `boards`, `url`, `comments` (how many are open).
 - `check "<folder>"` → `{problems, issues: [{file, problem}]}`: what is wrong in `design.json` and the boards'
@@ -74,7 +76,10 @@ head or inline; a script may run. The board runs in a sandbox of its own:
   Fonts (`<link href="https://fonts.googleapis.com/css2?family=…">`). Anything else from the web is blocked;
   pictures you need go into the folder.
 - No network calls, no `<iframe>`, no storage that must persist.
-- Links between boards (`<a href="Home.html">`) work when the board is shown alone: a clickable prototype.
+- Links between boards (`<a href="Home.html">`, the path relative to the board) make it a clickable prototype:
+  shown alone or presented, clicking one goes to that board. Only `<a href>` leads to another board; a
+  `<button>` does what its script does. In a presentation, a click on nothing that leads anywhere flashes the
+  links that do, so put the way forward on a link (the main button of a step can be an `<a class="btn">`).
 
 A style several boards share can go in one `.css` file beside them. Other HTML files in the folder that are
 not boards: keep them out of the folder (`check` names every HTML file `design.json` does not list).
@@ -93,7 +98,8 @@ not boards: keep them out of the folder (`check` names every HTML file `design.j
 5. Working on a card (a task note)? Put the folder's path and the `url` in its deliverables.
 
 Several options for one screen: boards side by side in a row, each titled for what differs ("A · cards",
-"B · list"). A flow: one row in order, a title note over it.
+"B · list"). A flow: one row in order, a title note over it, each step linked to the next, so the user can
+present it (Present, or P) and click through. Asked to show or walk through the flow: give the `--present` url.
 
 ## Designing well
 
@@ -143,6 +149,9 @@ Finding the place: open `file` and look for `element.path` (or `element.html`, o
 
 ## What is not here
 
+- Presenting: Present (or P) starts at the board shown alone or selected (else the first); ← → go through the
+  boards in order, Backspace back along the clicked way, R starts again, Esc ends. No comments while presenting,
+  and no transitions but a short fade.
 - The page shows and comments; it does not edit. There is no retyping text or dragging boards on the page: the
   user asks, you change the files.
 - It listens on this computer only: no link for a phone or another computer.

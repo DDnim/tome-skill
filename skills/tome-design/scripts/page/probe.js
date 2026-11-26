@@ -147,7 +147,7 @@
     "keydown",
     (e) => {
       const typing = e.target.closest?.("input, textarea, select, [contenteditable]");
-      if (e.key === "Escape" || (!typing && !e.metaKey && !e.ctrlKey && !e.altKey && ["c", "f", "0", "ArrowLeft", "ArrowRight"].includes(e.key))) {
+      if (e.key === "Escape" || (!typing && !e.metaKey && !e.ctrlKey && !e.altKey && ["c", "f", "0", "p", "r", "ArrowLeft", "ArrowRight", "Backspace"].includes(e.key))) {
         if (picking || e.key === "Escape") e.preventDefault();
         send({ type: "key", key: e.key });
       }
@@ -155,8 +155,59 @@
     true,
   );
 
+  // -- links to other boards: the page shows that board --
+  const own = location.pathname.match(/^\/f\/([0-9a-f]{16})\//);
+  /** The board a link goes to (its path in the design), or null. */
+  function boardOfLink(a) {
+    const href = a.getAttribute("href");
+    if (!own || !href || href.startsWith("#") || /^[a-z][a-z0-9+.-]*:/i.test(href)) return null;
+    let u;
+    try {
+      u = new URL(href, location.href);
+    } catch {
+      return null;
+    }
+    if (!u.pathname.startsWith(own[0])) return null;
+    let rel;
+    try {
+      rel = decodeURIComponent(u.pathname.slice(own[0].length));
+    } catch {
+      return null;
+    }
+    return /\.html?$/i.test(rel) ? rel : null;
+  }
+  let hints = false;
+  /** Flashes what can be clicked to go to another board. */
+  function flash() {
+    for (const a of document.querySelectorAll("a[href]")) {
+      if (!boardOfLink(a)) continue;
+      const [x, y, w, h] = rectOf(a);
+      if (w === 0 || h === 0) continue;
+      const b = document.createElement("div");
+      b.setAttribute("data-tome-probe", "");
+      b.style.cssText = `position:absolute;z-index:2147483646;pointer-events:none;left:${x - 2}px;top:${y - 2}px;width:${w + 4}px;height:${h + 4}px;border:2px solid #2f6fd6;background:rgba(47,111,214,.18);border-radius:6px;box-sizing:border-box;transition:opacity .3s`;
+      document.body.append(b);
+      setTimeout(() => (b.style.opacity = "0"), 450);
+      setTimeout(() => b.remove(), 800);
+    }
+  }
+  addEventListener("click", (e) => {
+    if (picking) return;
+    const a = e.target.closest?.("a[href]");
+    const to = a ? boardOfLink(a) : null;
+    if (to) {
+      e.preventDefault();
+      send({ type: "go", file: to });
+      return;
+    }
+    if (a && a.getAttribute("href").startsWith("#")) e.preventDefault();
+    // Not a way to another board: in a presentation, show where the ways are.
+    if (hints && !e.target.closest?.("button, input, select, textarea, label, summary, [onclick]")) flash();
+  });
+
   addEventListener("message", (e) => {
     if (e.source !== window.parent || !e.data || e.data.tome !== 1) return;
+    if (e.data.type === "hints") hints = Boolean(e.data.on);
     if (e.data.type === "pick") {
       picking = Boolean(e.data.on);
       start = null;

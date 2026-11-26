@@ -46,6 +46,10 @@ const zh = {
   "{n} elements": "{n} 个元素",
   "Drop this place": "不针对这里",
   "No comments yet. Press Comment, then click a board.": "还没有评论。按「评论」，再点画板。",
+  "Present": "演示",
+  "Exit": "退出",
+  "Restart": "重新开始",
+  "Click anywhere to see what leads to another board. ← → for the others.": "点空白处会闪出能跳到别的画板的地方。← → 换一张。",
   "Copy path": "复制路径",
   "Copied": "已复制",
 };
@@ -88,6 +92,10 @@ const ja = {
   "{n} elements": "要素 {n} 個",
   "Drop this place": "この場所を外す",
   "No comments yet. Press Comment, then click a board.": "コメントはまだありません。「コメント」を押してボードをクリック。",
+  "Present": "プレゼン",
+  "Exit": "終了",
+  "Restart": "最初から",
+  "Click anywhere to see what leads to another board. ← → for the others.": "空いている所をクリックすると、別のボードへ進める場所が光ります。← → で前後。",
   "Copy path": "パスをコピー",
   "Copied": "コピーしました",
 };
@@ -192,6 +200,7 @@ async function showDesign(id) {
         <button class="out" title="${esc(t("Zoom out"))}">−</button>
         <button class="zoom" title="${esc(t("Fit"))}"></button>
         <button class="in" title="${esc(t("Zoom in"))}">+</button>
+        <button class="present-button">${esc(t("Present"))}<kbd>P</kbd></button>
         <button class="pick">${esc(t("Comment"))}<kbd>C</kbd></button>
         <button class="toggle"></button>
       </header>
@@ -230,6 +239,7 @@ async function showDesign(id) {
     texts: {},
     seen: "",
     sizes: {},
+    present: null,
   };
   const boardOf = (file) => state.design.boards.find((b) => b.file === file) ?? null;
   const boardName = (b) => b?.title || b?.file || "";
@@ -558,10 +568,110 @@ async function showDesign(id) {
     room.style.height = h * s + "px";
   }
 
+  // -- presenting: one board at a time, full window, its links lead on --
+
+  const existing = () => state.design.boards.filter((b) => b.exists).map((b) => b.file);
+
+  function openPresent(file) {
+    const start = boardOf(file)?.exists ? file : existing()[0];
+    if (!start) return;
+    if (state.picking) setPicking(false);
+    state.present = { file: null, trail: [], start };
+    const node = el(`
+      <div class="present">
+        <div class="present-bar">
+          <button class="exit">${esc(t("Exit"))}<kbd>Esc</kbd></button>
+          <span class="grow"></span>
+          <b class="name"></b><span class="count"></span>
+          <span class="grow"></span>
+          <button class="restart">${esc(t("Restart"))}<kbd>R</kbd></button>
+        </div>
+        <div class="present-stage"><div class="device"></div></div>
+        <div class="present-tip">${esc(t("Click anywhere to see what leads to another board. ← → for the others."))}</div>
+      </div>`);
+    page.append(node);
+    node.querySelector(".exit").addEventListener("click", closePresent);
+    node.querySelector(".restart").addEventListener("click", () => presentGo(state.present.start, false, true));
+    new ResizeObserver(layoutPresent).observe(node.querySelector(".present-stage"));
+    setTimeout(() => node.querySelector(".present-tip")?.classList.add("gone"), 4000);
+    const url = new URL(location.href);
+    url.searchParams.set("present", start);
+    history.replaceState(null, "", url);
+    presentGo(start, false, true);
+  }
+
+  function closePresent() {
+    if (!state.present) return;
+    state.present = null;
+    page.querySelector(".present")?.remove();
+    const url = new URL(location.href);
+    url.searchParams.delete("present");
+    history.replaceState(null, "", url);
+  }
+
+  /** Shows a board. `remember`: on the way (Backspace goes back to the one before); `fresh`: the way starts again. */
+  function presentGo(file, remember, fresh = false) {
+    const p = state.present;
+    const b = boardOf(file);
+    if (!p || !b?.exists) return;
+    if (fresh) p.trail = [];
+    else if (remember && p.file && p.file !== file) p.trail.push(p.file);
+    p.file = file;
+    const node = page.querySelector(".present");
+    const files = existing();
+    node.querySelector(".name").textContent = boardName(b);
+    node.querySelector(".count").textContent = `${files.indexOf(file) + 1} / ${files.length}`;
+    const url = new URL(location.href);
+    url.searchParams.set("present", file);
+    history.replaceState(null, "", url);
+    const device = node.querySelector(".device");
+    // The new board fades in over the old one; the old one goes when it is in.
+    const frame = el(`<iframe sandbox="allow-scripts" title="${esc(boardName(b))}"></iframe>`);
+    frame.dataset.file = file;
+    frame.dataset.rev = `${b.rev}-${state.design.assets}`;
+    frame.addEventListener("load", () => {
+      frame.classList.add("in");
+      setTimeout(() => {
+        for (const old of device.querySelectorAll("iframe")) if (old !== frame && device.lastElementChild === frame) old.remove();
+      }, 220);
+    });
+    frame.src = `${fileUrl(id, file)}?r=${frame.dataset.rev}`;
+    device.append(frame);
+    layoutPresent();
+  }
+
+  /** The board at its own size, smaller when the window is: it scrolls inside, as on the device. */
+  function layoutPresent() {
+    const node = page.querySelector(".present");
+    const b = boardOf(state.present?.file);
+    if (!node || !b) return;
+    const room = node.querySelector(".present-stage");
+    const s = clamp(Math.min((room.clientWidth - 48) / b.w, (room.clientHeight - 72) / b.h), 0.1, 1);
+    const device = node.querySelector(".device");
+    device.style.width = b.w * s + "px";
+    device.style.height = b.h * s + "px";
+    device.style.setProperty("--s", String(s));
+    device.style.setProperty("--w", b.w + "px");
+    device.style.setProperty("--h", b.h + "px");
+  }
+
+  function presentKey(e) {
+    const p = state.present;
+    const files = existing();
+    const at = files.indexOf(p.file);
+    if (e.key === "Escape") closePresent();
+    else if (e.key === "ArrowRight" && at < files.length - 1) presentGo(files[at + 1], true);
+    else if (e.key === "ArrowLeft" && at > 0) presentGo(files[at - 1], true);
+    else if (e.key === "Backspace" && p.trail.length) presentGo(p.trail.pop(), false);
+    else if (e.key === "r" || e.key === "R") presentGo(p.start, false, true);
+    else return;
+    e.preventDefault();
+  }
+
   // -- taking a comment on a board --
 
   function iframes() {
-    return [...page.querySelectorAll(".screen iframe")];
+    return [...page.querySelectorAll(".screen iframe, .device iframe")];
   }
   function setPicking(on) {
     state.picking = on;
@@ -583,6 +693,7 @@ async function showDesign(id) {
   function fileOfSource(source) {
     const frame = iframes().find((f) => f.contentWindow === source);
     if (!frame) return null;
+    if (frame.closest(".present")) return frame.dataset.file ?? null;
     if (frame.closest(".focus")) return state.focus;
     return frame.closest(".frame")?.dataset.file ?? null;
   }
@@ -593,7 +704,13 @@ async function showDesign(id) {
     const file = fileOfSource(e.source);
     if (!file) return;
     if (m.type === "ready") {
-      if (state.picking) e.source.postMessage({ tome: 1, type: "pick", on: true }, "*");
+      if (state.present) e.source.postMessage({ tome: 1, type: "hints", on: true }, "*");
+      else if (state.picking) e.source.postMessage({ tome: 1, type: "pick", on: true }, "*");
+    } else if (m.type === "go" && typeof m.file === "string") {
+      // A link to another board: that board, where the link was clicked.
+      if (!boardOf(m.file)?.exists) return;
+      if (state.present) presentGo(m.file, true);
+      else if (state.focus === file) openFocus(m.file);
     } else if (m.type === "size" && Number.isFinite(m.h)) {
       state.sizes[file] = { w: m.w, h: m.h };
       if (state.focus === file) layoutFocus();
@@ -745,6 +862,7 @@ async function showDesign(id) {
   });
   toggle.addEventListener("click", () => page.classList.toggle("panel-open"));
   pickButton.addEventListener("click", () => setPicking(!state.picking));
+  page.querySelector(".present-button").addEventListener("click", () => openPresent(state.focus ?? state.selected));
   zoomButton.addEventListener("click", fit);
   page.querySelector(".in").addEventListener("click", () => zoomMid(1.25));
   page.querySelector(".out").addEventListener("click", () => zoomMid(0.8));
@@ -766,6 +884,11 @@ async function showDesign(id) {
   function key(e) {
     if (typing(e)) return;
     if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (state.present) return presentKey(e);
+    if (e.key === "p" || e.key === "P") {
+      e.preventDefault();
+      return openPresent(state.focus ?? state.selected);
+    }
     if (e.key === "Escape") {
       if (state.picking) setPicking(false);
       else if (state.draft) {
@@ -815,6 +938,8 @@ async function showDesign(id) {
   fit();
   const asked = new URL(location.href).searchParams.get("b");
   if (asked && boardOf(asked)?.exists) openFocus(asked);
+  const presented = new URL(location.href).searchParams.get("present");
+  if (presented !== null) openPresent(presented);
   await loadComments();
   setInterval(() => document.visibilityState === "visible" && loadComments(), 1500);
   addEventListener("resize", () => !state.focus && applyView());
@@ -842,6 +967,12 @@ async function showDesign(id) {
       renderPanel();
       if (!hadBoards && r.boards.length) fit();
       if (state.focus) renderFocus(false);
+      if (state.present) {
+        const shown = page.querySelector(".present .device iframe:last-child");
+        const b = boardOf(state.present.file);
+        if (!b?.exists) closePresent();
+        else if (shown?.dataset.rev !== `${b.rev}-${r.assets}`) presentGo(b.file, false);
+      }
     } catch {
       await sleep(2000);
     }

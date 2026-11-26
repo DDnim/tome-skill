@@ -101,3 +101,15 @@ kbd { font-family: var(--mono); font-size: 11px; opacity: 0.7; margin-left: 4px;
   .panel { position: absolute; right: 0; top: 0; bottom: 0; box-shadow: -6px 0 24px rgba(0, 0, 0, 0.2); }
   .bar .path { display: none; }
 }
+
+/* -- presenting -- */
+.present { position: fixed; inset: 0; z-index: 20; display: flex; flex-direction: column; background: #1b1b1a; color: #ecebe7; }
+.present-bar { flex: none; display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 12px; font-size: 13px; white-space: nowrap; }
+.present-bar button { color: #ecebe7; border-color: #3a3936; }
+.present-bar .count { color: #9a9892; font-variant-numeric: tabular-nums; }
+.present-stage { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
+.device { position: relative; overflow: hidden; border-radius: 14px; background: #ffffff; box-shadow: 0 12px 48px rgba(0, 0, 0, 0.5); }
+.device iframe { position: absolute; left: 0; top: 0; width: var(--w); height: var(--h); border: 0; transform-origin: 0 0; transform: scale(var(--s)); background: #ffffff; opacity: 0; transition: opacity 0.18s ease-out; }
+.device iframe.in { opacity: 1; }
+.present-tip { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); color: #9a9892; font-size: 12px; transition: opacity 0.6s; pointer-events: none; }
+.present-tip.gone { opacity: 0; }

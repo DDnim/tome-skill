@@ -841,6 +841,7 @@ const USAGE = `tome-design: designs (artboards in plain HTML) on a canvas in a p
 design.mjs new TITLE [--in DIR]    make a design's folder DIR/TITLE (default DIR: ./designs) with an empty ${INDEX}, open it; prints {url, root, index, …}
 design.mjs open [FOLDER]           start it if needed and open the design in FOLDER; prints {url, …} (no FOLDER: the list of opened designs)
            --board FILE            the address of that board, shown alone
+           --present FILE          the address of a presentation that starts at that board
 design.mjs list                    the opened designs: [{id, root, title, boards, url, comments}]
 design.mjs check FOLDER            what is wrong with the design's files: {problems, issues}; exits 1 while there are any
 design.mjs close FOLDER            take it off the list (the files stay)
@@ -861,6 +862,7 @@ async function main(argv) {
   let port = DEFAULT_PORT;
   let parent = null;
   let board = null;
+  let present = null;
   const words = [];
   const flags = new Set();
   for (let i = 0; i < rest.length; i++) {
@@ -877,6 +879,7 @@ async function main(argv) {
       port = Number(v);
     } else if (a === "--in") parent = path.resolve(value(a));
     else if (a === "--board") board = value(a);
+    else if (a === "--present") present = value(a);
     else if (a.startsWith("--")) fail(`unknown option ${a}`);
     else words.push(a);
   }
@@ -889,7 +892,7 @@ async function main(argv) {
     const root = Designs.rootOf(p);
     return designs.list().find((d) => d.root === root) ?? fail(`not an opened design: ${p} (open it first)`);
   };
-  const urlOf = (base, d, b) => `${base}d/${d.id}${b ? `?b=${encodeURIComponent(b)}` : ""}`;
+  const urlOf = (base, d, b, p) => `${base}d/${d.id}${p ? `?present=${encodeURIComponent(p)}` : b ? `?b=${encodeURIComponent(b)}` : ""}`;
   try {
     if (command === "serve") return void (await serve(port));
     if (command === "stop") return print(await stop());
@@ -915,11 +918,13 @@ async function main(argv) {
         if (words.length === 0 || !words[0].trim()) fail("new needs a title");
         d = designs.add(makeDesign(words[0], parent ?? path.resolve("designs")));
       } else if (words.length) d = designs.add(words[0]);
-      if (board !== null && (!d || !readIndex(d.root).boards.some((b) => b.file === board))) fail(`no board ${board} in that design`);
+      for (const asked of [board, present]) {
+        if (asked !== null && (!d || !readIndex(d.root).boards.some((b) => b.file === asked))) fail(`no board ${asked} in that design`);
+      }
       const state = await ensure(port);
       const out = { url: state.url, pid: state.pid, reused: state.reused, stop: `node ${JSON.stringify(me)} stop` };
       if (!d) return print(out);
-      return print({ ...out, url: urlOf(state.url, d, board), id: d.id, title: d.title, root: d.root, index: path.join(d.root, INDEX), boards: d.boards });
+      return print({ ...out, url: urlOf(state.url, d, board, present), id: d.id, title: d.title, root: d.root, index: path.join(d.root, INDEX), boards: d.boards });
     }
     if (command === "comments") {
       const d = words.length ? opened(words[0]) : null;
