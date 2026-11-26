@@ -87,6 +87,10 @@ node skills/tome-md/scripts/md.mjs comment-reply <id> "…"  # replies (--resolv
 
 ## tome-design: a design on a canvas
 
+![An element of a board is sent to the agent with a comment; the agent rewrites the board and replies, the changed board is outlined on the canvas, then the flow is presented](docs/tome-design.gif)
+
+*You click an element of a board and comment; the agent edits the HTML file and replies. The changed board is outlined on the canvas; then you present it and click through.*
+
 `scripts/design.mjs` is both the command and the local server (Node 20+, no dependencies). `scripts/page/` is the page: plain JavaScript, no build. A design is a folder: `design.json` places its artboards on the canvas, and each artboard is a plain HTML file in the folder.
 
 ```sh
@@ -111,6 +115,10 @@ node skills/tome-design/scripts/design.mjs comment-reply <id> "…"  # replies (
 - **Tests**: `cd apps/design && npm test`.
 
 ## tome-slides: a slide deck
+
+![A title on a slide is clicked and sent to the agent with a comment; the agent rewrites it and replies, then the deck is presented](docs/tome-slides.gif)
+
+*You click an element of a slide and comment; the agent edits the slide's file and replies. Then the deck is presented, one press at a time.*
 
 `scripts/slides.mjs` is both the command and the local server (Node 20+, no dependencies; Chrome only for `export`). `scripts/page/` is the page: plain JavaScript, no build. A deck is a folder: `deck.json` lists the slides in order with their speaker notes, and each slide is a plain HTML file in the folder.
 
@@ -140,6 +148,10 @@ node skills/tome-slides/scripts/slides.mjs comment-reply <id> "…"   # replies 
 
 ## tome-pipeline: a pipeline of steps
 
+![A run moves through the steps, two side by side; a question for a person waits, is answered on the page, and the run carries on to the end](docs/tome-pipeline.gif)
+
+*A run colors each step as it goes; you look at a step's log and files, answer the question that waits, and the run carries on.*
+
 `scripts/pipeline.mjs` is the command, the runner and the local server (Node 20+, no dependencies). `scripts/page/` is the page: plain JavaScript, no build. A pipeline is a folder: `pipeline.json` lists the steps with what each needs and makes, and each step is a script or a prompt in `steps/`. Every run is a folder `runs/<time>/` with each step's log and files.
 
 ```sh
@@ -162,6 +174,10 @@ node skills/tome-pipeline/scripts/pipeline.mjs open | list | close <folder> | st
 - **Tests**: `cd apps/pipeline && npm test`.
 
 ## tome-etl: a dbt project as a graph
+
+![A model is opened from the graph and a comment on it is sent to the agent, which adds the missing key tests to the YAML and replies; the model's review finding goes away](docs/tome-etl.gif)
+
+*You open a model on the graph and ask for tests of its key; the agent edits the YAML, parses, and replies. Then the Review tab shows what is left.*
 
 `scripts/etl.mjs` is both the command and the local server (Node 20+, no dependencies). `scripts/page/` is the page: plain JavaScript, no build. It reads what dbt wrote in the project's `target/` folder and never the warehouse.
 

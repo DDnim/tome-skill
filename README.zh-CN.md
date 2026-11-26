@@ -87,6 +87,10 @@ node skills/tome-md/scripts/md.mjs comment-reply <id> "…"  # 回复（--resolv
 
 ## tome-design：画布上的设计稿
 
+![点画板上的一个元素写评论发给 agent，agent 改写这张画板并回复，画布上改过的画板被框出来，最后演示这个流程](docs/tome-design.gif)
+
+*点画板上的一个元素写评论，agent 改 HTML 文件并回复；画布上改过的画板会被框出来，接着演示、点着往下走。（演示画面是英文界面，页面会跟随浏览器的语言。）*
+
 `scripts/design.mjs` 既是命令也是本机的服务（Node 20+，没有依赖）。`scripts/page/` 是页面：普通的 JavaScript，不用构建。一个设计稿是一个文件夹：`design.json` 写画板在画布上的位置，每张画板是文件夹里的一个普通 HTML 文件。
 
 ```sh
@@ -111,6 +115,10 @@ node skills/tome-design/scripts/design.mjs comment-reply <id> "…"  # 回复（
 - **测试**：`cd apps/design && npm test`。
 
 ## tome-slides：幻灯片
+
+![点一下幻灯片上的标题写评论发给 agent，agent 改写标题并回复，然后放映](docs/tome-slides.gif)
+
+*点一下幻灯片上的一个元素写评论，agent 改这一页的文件并回复；接着放映，按一下翻一页。（演示画面是英文界面，页面会跟随浏览器的语言。）*
 
 `scripts/slides.mjs` 既是命令也是本机的服务（Node 20+，没有依赖；只有 `export` 要用 Chrome）。`scripts/page/` 是页面：普通的 JavaScript，不用构建。一套幻灯片是一个文件夹：`deck.json` 按顺序列出每一页和它的演讲备注，每一页是文件夹里的一个普通 HTML 文件。
 
@@ -140,6 +148,10 @@ node skills/tome-slides/scripts/slides.mjs comment-reply <id> "…"  # 回复（
 
 ## tome-pipeline：流水线
 
+![一次运行顺着步骤往下走，两步并排跑；一个要人回答的问题停下来等，在页面上回答后接着跑完](docs/tome-pipeline.gif)
+
+*运行时每一步按状态变色；点开一步看日志和产出的文件，回答停下来等人的问题，流水线接着跑完。（演示画面是英文界面，页面会跟随浏览器的语言。）*
+
 `scripts/pipeline.mjs` 既是命令、运行器，也是本机的服务（Node 20+，没有依赖）。`scripts/page/` 是页面：普通的 JavaScript，不用构建。一条流水线是一个文件夹：`pipeline.json` 列出每一步和它需要什么、产出什么，每一步是 `steps/` 里的一个脚本或提示词。每次运行是一个文件夹 `runs/<时间>/`，放着每一步的日志和产出。
 
 ```sh
@@ -162,6 +174,10 @@ node skills/tome-pipeline/scripts/pipeline.mjs open | list | close <文件夹> |
 - **测试**：`cd apps/pipeline && npm test`。
 
 ## tome-etl：把 dbt 项目看成一张图
+
+![在图上点开一个模型，写评论发给 agent，agent 在 YAML 里补上主键的测试并回复，这个模型的检查项随之消失](docs/tome-etl.gif)
+
+*在图上点开一个模型，要它给主键加测试；agent 改 YAML、重新 parse 并回复。最后在 Review 里看剩下的检查项。（演示画面是英文界面，页面会跟随浏览器的语言。）*
 
 `scripts/etl.mjs` 既是命令，也是本机的服务（Node 20+，没有依赖）。`scripts/page/` 是页面：普通的 JavaScript，不用构建。它只读 dbt 写在项目 `target/` 里的文件，不连数据库。
 
